@@ -96,9 +96,7 @@ export function Products() {
       {/* ===== Content ===== */}
       <Main fixed>
         <div>
-          <h1 className='text-2xl font-bold tracking-tight'>
-            Products
-          </h1>
+          <h1 className='text-2xl font-bold tracking-tight'>Products</h1>
           <p className='text-muted-foreground'>
             Here&apos;s a list of your products!
           </p>

@@ -111,7 +111,6 @@ export function UserAuthForm({
                 <PasswordInput placeholder='********' {...field} />
               </FormControl>
               <FormMessage />
-              
             </FormItem>
           )}
         />
