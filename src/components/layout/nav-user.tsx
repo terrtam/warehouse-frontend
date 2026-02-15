@@ -1,13 +1,13 @@
 import { Link } from '@tanstack/react-router'
 import {
   BadgeCheck,
-  Bell,
   ChevronsUpDown,
-  CreditCard,
+  Boxes,
   LogOut,
-  Sparkles,
+  Tags,
 } from 'lucide-react'
 import useDialogState from '@/hooks/use-dialog-state'
+import { useAuthStore } from '@/stores/auth-store'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -37,6 +37,8 @@ type NavUserProps = {
 export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar()
   const [open, setOpen] = useDialogState()
+  const roles = useAuthStore((state) => state.auth.user?.role ?? [])
+  const isManager = roles.includes('manager')
 
   return (
     <>
@@ -79,31 +81,26 @@ export function NavUser({ user }: NavUserProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem>
-                  <Sparkles />
-                  Upgrade to Pro
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
                 <DropdownMenuItem asChild>
-                  <Link to='/user-management'>
+                  <Link to='/products'>
                     <BadgeCheck />
-                    Account
+                    Products
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to='/customers'>
-                    <CreditCard />
-                    Billing
+                  <Link to='/inventory'>
+                    <Boxes />
+                    Inventory
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to='/orders'>
-                    <Bell />
-                    Notifications
-                  </Link>
-                </DropdownMenuItem>
+                {isManager && (
+                  <DropdownMenuItem asChild>
+                    <Link to='/categories'>
+                      <Tags />
+                      Categories
+                    </Link>
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem

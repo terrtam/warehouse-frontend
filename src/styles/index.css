@@ -85,3 +85,82 @@
     height: 0;
   }
 }
+
+.wms-grid {
+  --ag-background-color: var(--card);
+  --ag-header-background-color: var(--muted);
+  --ag-header-height: 42px;
+  --ag-row-height: 44px;
+  --ag-font-size: 0.875rem;
+  --ag-cell-horizontal-padding: 0.75rem;
+  --ag-grid-size: 6px;
+  --ag-odd-row-background-color: color-mix(
+    in oklab,
+    var(--card) 92%,
+    var(--muted-foreground) 8%
+  );
+  --ag-even-row-background-color: var(--card);
+  --ag-row-hover-color: color-mix(in oklab, var(--muted) 70%, transparent);
+  --ag-selected-row-background-color: color-mix(
+    in oklab,
+    var(--muted) 85%,
+    transparent
+  );
+  --ag-range-selection-background-color: color-mix(
+    in oklab,
+    var(--primary) 12%,
+    transparent
+  );
+  --ag-checkbox-checked-color: var(--primary);
+  --ag-foreground-color: var(--foreground);
+  --ag-border-color: var(--border);
+  --ag-row-border-color: var(--border);
+  --ag-font-family: var(--font-inter);
+  --ag-header-foreground-color: var(--foreground);
+  --ag-icon-color: var(--muted-foreground);
+  --ag-input-border-color: var(--input);
+  --ag-input-focus-border-color: var(--ring);
+  --ag-input-focus-box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 35%, transparent);
+  --ag-alpine-active-color: var(--primary);
+}
+
+.wms-grid .ag-root-wrapper {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--border) 20%, transparent);
+}
+
+.wms-grid .ag-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.wms-grid .ag-header-cell {
+  font-weight: 600;
+}
+
+.wms-grid .ag-cell {
+  display: flex;
+  align-items: center;
+}
+
+.wms-grid .ag-row {
+  transition: background-color 120ms ease;
+}
+
+.wms-grid .ag-row:not(.ag-row-selected):hover .ag-cell {
+  background-color: var(--ag-row-hover-color);
+}
+
+.wms-grid .ag-paging-panel {
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.wms-grid .ag-overlay-no-rows-center,
+.wms-grid .ag-overlay-loading-center {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  border-radius: var(--radius-sm);
+}

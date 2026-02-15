@@ -20,61 +20,61 @@ import {
 } from '@/components/ui/select'
 import { useAuthStore } from '@/stores/auth-store'
 import { wmsQueryKeys, wmsRepository } from '@/services/wms'
-import type { Customer, RecordStatus } from '@/domain/wms/types'
+import type { RecordStatus, Supplier } from '@/domain/wms/types'
 import { WmsPage } from '@/features/wms/components/wms-page'
 import { GridToolbar } from '@/features/wms/components/grid-toolbar'
 import { extractSortState, sortRows } from '@/features/wms/grid-utils'
 import { statusOptions } from '@/features/wms/constants'
 
-const route = getRouteApi('/_authenticated/customers/')
+const route = getRouteApi('/_authenticated/suppliers/')
 
-type CustomerFormState = {
+type SupplierFormState = {
   name: string
   contactInfo: string
   address: string
   status: RecordStatus
 }
 
-const initialFormState: CustomerFormState = {
+const initialFormState: SupplierFormState = {
   name: '',
   contactInfo: '',
   address: '',
   status: 'active',
 }
 
-export function Customers() {
+export function Suppliers() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const queryClient = useQueryClient()
   const authRoles = useAuthStore((state) => state.auth.user?.role ?? [])
   const parsedRoles = useMemo(() => getCurrentRoles(), [authRoles])
-  const canManage = canAnyRole(parsedRoles, 'customers:manage')
+  const canManage = canAnyRole(parsedRoles, 'suppliers:manage')
   const { pagination, setPagination, q, setQuery, sortBy, sortDir, setSort } =
     useGridUrlState({
       search,
       navigate,
     })
 
-  const [form, setForm] = useState<CustomerFormState>(initialFormState)
+  const [form, setForm] = useState<SupplierFormState>(initialFormState)
 
-  const customersQuery = useQuery({
-    queryKey: wmsQueryKeys.customers,
-    queryFn: () => wmsRepository.customers.list(),
+  const suppliersQuery = useQuery({
+    queryKey: wmsQueryKeys.suppliers,
+    queryFn: () => wmsRepository.suppliers.list(),
   })
 
   const createMutation = useMutation({
-    mutationFn: () => wmsRepository.customers.create(form, getCurrentActor()),
+    mutationFn: () => wmsRepository.suppliers.create(form, getCurrentActor()),
     onSuccess: () => {
-      toast.success('Customer created')
+      toast.success('Supplier created')
       setForm(initialFormState)
-      queryClient.invalidateQueries({ queryKey: wmsQueryKeys.customers })
+      queryClient.invalidateQueries({ queryKey: wmsQueryKeys.suppliers })
     },
     onError: handleWmsError,
   })
 
   const updateMutation = useMutation({
-    mutationFn: (row: Customer) =>
-      wmsRepository.customers.update(
+    mutationFn: (row: Supplier) =>
+      wmsRepository.suppliers.update(
         row.id,
         {
           name: row.name,
@@ -86,15 +86,15 @@ export function Customers() {
         row.version
       ),
     onSuccess: () => {
-      toast.success('Customer updated')
-      queryClient.invalidateQueries({ queryKey: wmsQueryKeys.customers })
+      toast.success('Supplier updated')
+      queryClient.invalidateQueries({ queryKey: wmsQueryKeys.suppliers })
     },
     onError: handleWmsError,
   })
 
   const rows = useMemo(() => {
     const lowered = q.toLowerCase()
-    const filtered = (customersQuery.data ?? []).filter((row) => {
+    const filtered = (suppliersQuery.data ?? []).filter((row) => {
       if (lowered.length === 0) return true
       return (
         row.name.toLowerCase().includes(lowered) ||
@@ -103,9 +103,9 @@ export function Customers() {
       )
     })
     return sortRows(filtered, sortBy, sortDir)
-  }, [customersQuery.data, q, sortBy, sortDir])
+  }, [suppliersQuery.data, q, sortBy, sortDir])
 
-  const columns = useMemo<ColDef<Customer>[]>(
+  const columns = useMemo<ColDef<Supplier>[]>(
     () => [
       { field: 'name', headerName: 'Name' },
       { field: 'contactInfo', headerName: 'Contact' },
@@ -123,7 +123,7 @@ export function Customers() {
         sortable: false,
         filter: false,
         minWidth: 140,
-        cellRenderer: (params: { data?: Customer }) => {
+        cellRenderer: (params: { data?: Supplier }) => {
           const row = params.data
           if (!row || !canManage) return null
           return (
@@ -151,46 +151,46 @@ export function Customers() {
 
   return (
     <WmsPage
-      title='Customers'
-      description='Manage customer master data used by sales orders.'
+      title='Suppliers'
+      description='Maintain supplier records used by purchase orders.'
     >
       {canManage && (
         <Card>
           <CardHeader>
-            <CardTitle>Create Customer</CardTitle>
+            <CardTitle>Create Supplier</CardTitle>
           </CardHeader>
           <CardContent className='grid gap-4 md:grid-cols-4'>
             <div className='space-y-2'>
-              <Label htmlFor='customer-name'>Name</Label>
+              <Label htmlFor='supplier-name'>Name</Label>
               <Input
-                id='customer-name'
+                id='supplier-name'
                 value={form.name}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, name: event.target.value }))
                 }
-                placeholder='ACME Retail'
+                placeholder='Apex Supply Co.'
               />
             </div>
             <div className='space-y-2'>
-              <Label htmlFor='customer-contact'>Contact Info</Label>
+              <Label htmlFor='supplier-contact'>Contact Info</Label>
               <Input
-                id='customer-contact'
+                id='supplier-contact'
                 value={form.contactInfo}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, contactInfo: event.target.value }))
                 }
-                placeholder='buyer@acme.example'
+                placeholder='sales@apex.example'
               />
             </div>
             <div className='space-y-2'>
-              <Label htmlFor='customer-address'>Address</Label>
+              <Label htmlFor='supplier-address'>Address</Label>
               <Input
-                id='customer-address'
+                id='supplier-address'
                 value={form.address}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, address: event.target.value }))
                 }
-                placeholder='120 River St, Austin, TX'
+                placeholder='9 Industrial Rd, Denver, CO'
               />
             </div>
             <div className='space-y-2'>
@@ -218,7 +218,7 @@ export function Customers() {
                 onClick={() => createMutation.mutate()}
                 disabled={createDisabled}
               >
-                Create Customer
+                Create Supplier
               </Button>
             </div>
           </CardContent>
@@ -228,13 +228,13 @@ export function Customers() {
       <GridToolbar
         query={q}
         onQueryChange={setQuery}
-        placeholder='Filter customers...'
+        placeholder='Filter suppliers...'
       />
 
-      <WmsGrid<Customer>
+      <WmsGrid<Supplier>
         rowData={rows}
         columnDefs={columns}
-        loading={customersQuery.isLoading}
+        loading={suppliersQuery.isLoading}
         pagination={pagination}
         onPaginationChange={setPagination}
         onFilterChange={() => {}}

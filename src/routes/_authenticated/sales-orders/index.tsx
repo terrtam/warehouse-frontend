@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Products } from '@/features/products'
+import { SalesOrders } from '@/features/sales-orders'
 import { wmsGridSearchSchema } from '@/features/wms/search-schema'
 
-export const Route = createFileRoute('/_authenticated/products/')({
+export const Route = createFileRoute('/_authenticated/sales-orders/')({
   validateSearch: wmsGridSearchSchema,
-  component: Products,
+  component: SalesOrders,
 })
+

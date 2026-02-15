@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 import { AxiosError } from 'axios'
+import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community'
 import {
   QueryCache,
   QueryClient,
@@ -17,6 +18,8 @@ import { ThemeProvider } from './context/theme-provider'
 import { routeTree } from './routeTree.gen'
 // Styles
 import './styles/index.css'
+
+ModuleRegistry.registerModules([AllCommunityModule])
 
 const queryClient = new QueryClient({
   defaultOptions: {
