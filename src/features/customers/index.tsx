@@ -46,7 +46,7 @@ export function Customers() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const queryClient = useQueryClient()
-  const authRoles = useAuthStore((state) => state.auth.user?.role ?? [])
+  const authRoles = useAuthStore((state) => state.auth.user?.role)
   const parsedRoles = useMemo(() => getCurrentRoles(), [authRoles])
   const canManage = canAnyRole(parsedRoles, 'customers:manage')
   const { pagination, setPagination, q, setQuery, sortBy, sortDir, setSort } =

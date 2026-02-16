@@ -2,13 +2,13 @@ import { useEffect } from 'react'
 import { useInventoryTopic } from '@/hooks/use-inventory-topic'
 import { useOrdersTopic } from '@/hooks/use-orders-topic'
 import { useProductsTopic } from '@/hooks/use-products-topic'
-import { mockRealtimeTransport } from '@/services/realtime/mock-transport'
+import { stompRealtimeTransport } from '@/services/realtime/stomp-transport'
 
 export function RealtimeSyncBoundary() {
   useEffect(() => {
-    mockRealtimeTransport.connect()
+    stompRealtimeTransport.connect()
     return () => {
-      mockRealtimeTransport.disconnect()
+      stompRealtimeTransport.disconnect()
     }
   }, [])
 
@@ -18,4 +18,3 @@ export function RealtimeSyncBoundary() {
 
   return null
 }
-

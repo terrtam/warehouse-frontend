@@ -34,11 +34,52 @@ type NavUserProps = {
   }
 }
 
+const decodeTokenRoles = (token: string): string[] => {
+  if (!token) return []
+  try {
+    const rawToken = token.startsWith('Bearer ') ? token.slice(7) : token
+    const payloadPart = rawToken.split('.')[1] ?? ''
+    if (!payloadPart) return []
+    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    const payload = JSON.parse(atob(padded)) as Record<string, unknown>
+    const candidates = [
+      payload.roles,
+      payload.role,
+      payload.authorities,
+      payload.scope,
+      payload.scp,
+    ]
+
+    return candidates
+      .flatMap((value) => {
+        if (typeof value === 'string') return value.split(/\s+/)
+        if (!Array.isArray(value)) return []
+        return value.map((item) => {
+          if (typeof item === 'string') return item
+          if (!item || typeof item !== 'object') return ''
+          const raw = item as Record<string, unknown>
+          if (typeof raw.authority === 'string') return raw.authority
+          if (typeof raw.role === 'string') return raw.role
+          return ''
+        })
+      })
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+  } catch {
+    return []
+  }
+}
+
 export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar()
   const [open, setOpen] = useDialogState()
-  const roles = useAuthStore((state) => state.auth.user?.role ?? [])
-  const isManager = roles.includes('manager')
+  const accessToken = useAuthStore((state) => state.auth.accessToken)
+  const roles = useAuthStore((state) => state.auth.user?.role)
+  const isManager = roles?.includes('manager') ?? false
+  const tokenLength = accessToken.length
+  const roleText = (roles ?? []).join(', ') || 'none'
+  const decodedRoleText = decodeTokenRoles(accessToken).join(', ') || 'none'
 
   return (
     <>
@@ -103,6 +144,14 @@ export function NavUser({ user }: NavUserProps) {
                 )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
+              {import.meta.env.DEV && (
+                <>
+                  <DropdownMenuItem disabled>{`Token length: ${tokenLength}`}</DropdownMenuItem>
+                  <DropdownMenuItem disabled>{`User roles: ${roleText}`}</DropdownMenuItem>
+                  <DropdownMenuItem disabled>{`JWT roles: ${decodedRoleText}`}</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem
                 variant='destructive'
                 onClick={() => setOpen(true)}

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { mockRealtimeTransport } from '@/services/realtime/mock-transport'
+import { stompRealtimeTransport } from '@/services/realtime/stomp-transport'
 import type { RealtimeTopic } from '@/services/realtime/transport'
 
 export const useTopicSubscription = (
@@ -7,8 +7,7 @@ export const useTopicSubscription = (
   onMessage: (payload: unknown) => void
 ) => {
   useEffect(() => {
-    const unsubscribe = mockRealtimeTransport.subscribe(topic, onMessage)
+    const unsubscribe = stompRealtimeTransport.subscribe(topic, onMessage)
     return unsubscribe
   }, [topic, onMessage])
 }
-

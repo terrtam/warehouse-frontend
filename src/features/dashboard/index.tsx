@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { WmsPage } from '@/features/wms/components/wms-page'
 
 export function Dashboard() {
-  const authRoles = useAuthStore((state) => state.auth.user?.role ?? [])
+  const authRoles = useAuthStore((state) => state.auth.user?.role)
   const roles = useMemo(() => getCurrentRoles(), [authRoles])
   const isManager = canAnyRole(roles, 'dashboard:reports')
 

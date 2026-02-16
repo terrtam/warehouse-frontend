@@ -45,7 +45,7 @@ export function Inventory() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const queryClient = useQueryClient()
-  const authRoles = useAuthStore((state) => state.auth.user?.role ?? [])
+  const authRoles = useAuthStore((state) => state.auth.user?.role)
   const parsedRoles = useMemo(() => getCurrentRoles(), [authRoles])
   const canAdjust = canAnyRole(parsedRoles, 'inventory:adjust')
   const canOverride = canAnyRole(parsedRoles, 'inventory:override-negative')

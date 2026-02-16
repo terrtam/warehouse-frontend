@@ -52,7 +52,7 @@ export const createSidebarData = (input: SidebarInput): SidebarData => {
             icon: Boxes,
           },
           {
-            title: 'Inventory Txns',
+            title: 'Inventory Transactions',
             url: '/inventory-transactions',
             icon: FileSpreadsheet,
           },
@@ -76,13 +76,13 @@ export const createSidebarData = (input: SidebarInput): SidebarData => {
             url: '/customers',
             icon: Users,
           },
+          {
+            title: 'Categories',
+            url: '/categories',
+            icon: Tags,
+          },
           ...(isManager
             ? [
-                {
-                  title: 'Categories',
-                  url: '/categories',
-                  icon: Tags,
-                },
                 {
                   title: 'Suppliers',
                   url: '/suppliers',

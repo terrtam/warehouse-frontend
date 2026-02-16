@@ -46,7 +46,7 @@ export function SalesOrders() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const queryClient = useQueryClient()
-  const authRoles = useAuthStore((state) => state.auth.user?.role ?? [])
+  const authRoles = useAuthStore((state) => state.auth.user?.role)
   const parsedRoles = useMemo(() => getCurrentRoles(), [authRoles])
   const canCreate = canAnyRole(parsedRoles, 'sales-orders:create')
   const canConfirm = canAnyRole(parsedRoles, 'sales-orders:confirm')
