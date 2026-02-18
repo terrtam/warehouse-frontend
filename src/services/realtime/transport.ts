@@ -2,6 +2,8 @@ export type RealtimeTopic =
   | '/topic/products'
   | '/topic/inventory'
   | '/topic/orders'
+  | '/topic/customers'
+  | '/topic/suppliers'
 
 export type RealtimeHandler<TPayload = unknown> = (payload: TPayload) => void
 
@@ -19,5 +21,6 @@ export const realtimeTopics = {
   products: '/topic/products',
   inventory: '/topic/inventory',
   orders: '/topic/orders',
+  customers: '/topic/customers',
+  suppliers: '/topic/suppliers',
 } as const
-

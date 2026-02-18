@@ -46,14 +46,15 @@ export interface Product extends BaseRecord {
 
 export interface Customer extends BaseRecord {
   name: string
-  contactInfo: string
-  address: string
+  email: string
+  phone: string
   status: RecordStatus
 }
 
 export interface Supplier extends BaseRecord {
   name: string
-  contactInfo: string
+  email: string
+  phone: string
   address: string
   status: RecordStatus
 }
@@ -126,4 +127,3 @@ export interface LoginResponse {
   token: string
   claims: AuthClaims
 }
-

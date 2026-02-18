@@ -16,12 +16,18 @@ type SidebarInput = {
   roles?: string[]
 }
 
-const hasManagerRole = (roles: string[]) => roles.includes('manager')
+const normalizeRole = (role: string) =>
+  role
+    .trim()
+    .toLowerCase()
+    .replace(/^role_/, '')
+    .replace(/^role:/, '')
 
 export const createSidebarData = (input: SidebarInput): SidebarData => {
   const username = input.username ?? 'warehouse.user'
-  const roles = input.roles ?? ['staff']
-  const isManager = hasManagerRole(roles)
+  const roles = (input.roles ?? ['staff']).map(normalizeRole)
+  const isManager = roles.includes('manager')
+  const canViewSuppliers = isManager || roles.includes('staff')
   const roleLabel = isManager ? 'Manager' : 'Staff'
 
   return {
@@ -81,7 +87,7 @@ export const createSidebarData = (input: SidebarInput): SidebarData => {
             url: '/categories',
             icon: Tags,
           },
-          ...(isManager
+          ...(canViewSuppliers
             ? [
                 {
                   title: 'Suppliers',

@@ -8,7 +8,15 @@ import { getCurrentActor, getCurrentRoles, handleWmsError } from '@/lib/wms'
 import { useGridUrlState } from '@/hooks/use-grid-url-state'
 import { WmsGrid } from '@/components/ag-grid/wms-grid'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -30,17 +38,21 @@ const route = getRouteApi('/_authenticated/customers/')
 
 type CustomerFormState = {
   name: string
-  contactInfo: string
-  address: string
+  email: string
+  phone: string
   status: RecordStatus
 }
 
+type CustomerFormErrors = Partial<Record<keyof CustomerFormState, string>>
+
 const initialFormState: CustomerFormState = {
   name: '',
-  contactInfo: '',
-  address: '',
+  email: '',
+  phone: '',
   status: 'active',
 }
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function Customers() {
   const search = route.useSearch()
@@ -56,6 +68,9 @@ export function Customers() {
     })
 
   const [form, setForm] = useState<CustomerFormState>(initialFormState)
+  const [formErrors, setFormErrors] = useState<CustomerFormErrors>({})
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
 
   const customersQuery = useQuery({
     queryKey: wmsQueryKeys.customers,
@@ -63,34 +78,98 @@ export function Customers() {
   })
 
   const createMutation = useMutation({
-    mutationFn: () => wmsRepository.customers.create(form, getCurrentActor()),
+    mutationFn: (payload: CustomerFormState) =>
+      wmsRepository.customers.create(payload, getCurrentActor()),
     onSuccess: () => {
       toast.success('Customer created')
-      setForm(initialFormState)
+      setFormOpen(false)
+      resetForm()
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.customers })
     },
     onError: handleWmsError,
   })
 
   const updateMutation = useMutation({
-    mutationFn: (row: Customer) =>
+    mutationFn: (payload: {
+      id: string
+      customer: CustomerFormState
+      version?: number
+    }) =>
       wmsRepository.customers.update(
-        row.id,
-        {
-          name: row.name,
-          contactInfo: row.contactInfo,
-          address: row.address,
-          status: row.status === 'active' ? 'inactive' : 'active',
-        },
+        payload.id,
+        payload.customer,
         getCurrentActor(),
-        row.version
+        payload.version
       ),
     onSuccess: () => {
       toast.success('Customer updated')
+      if (formOpen) {
+        setFormOpen(false)
+        resetForm()
+      }
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.customers })
     },
     onError: handleWmsError,
   })
+
+  const resetForm = () => {
+    setForm(initialFormState)
+    setFormErrors({})
+    setEditingCustomer(null)
+  }
+
+  const openCreateForm = () => {
+    resetForm()
+    setFormOpen(true)
+  }
+
+  const openEditForm = (row: Customer) => {
+    setEditingCustomer(row)
+    setForm({
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+      status: row.status,
+    })
+    setFormErrors({})
+    setFormOpen(true)
+  }
+
+  const submitForm = () => {
+    const nextErrors: CustomerFormErrors = {}
+    if (!form.name.trim()) {
+      nextErrors.name = 'Name is required'
+    }
+    if (!form.email.trim()) {
+      nextErrors.email = 'Email is required'
+    } else if (!emailPattern.test(form.email.trim())) {
+      nextErrors.email = 'Please enter a valid email address'
+    }
+    if (!form.phone.trim()) {
+      nextErrors.phone = 'Phone is required'
+    }
+
+    setFormErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
+
+    const payload: CustomerFormState = {
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      status: form.status,
+    }
+
+    if (!editingCustomer) {
+      createMutation.mutate(payload)
+      return
+    }
+
+    updateMutation.mutate({
+      id: editingCustomer.id,
+      customer: payload,
+      version: editingCustomer.version,
+    })
+  }
 
   const rows = useMemo(() => {
     const lowered = q.toLowerCase()
@@ -98,8 +177,8 @@ export function Customers() {
       if (lowered.length === 0) return true
       return (
         row.name.toLowerCase().includes(lowered) ||
-        row.contactInfo.toLowerCase().includes(lowered) ||
-        row.address.toLowerCase().includes(lowered)
+        row.email.toLowerCase().includes(lowered) ||
+        row.phone.toLowerCase().includes(lowered)
       )
     })
     return sortRows(filtered, sortBy, sortDir)
@@ -108,8 +187,8 @@ export function Customers() {
   const columns = useMemo<ColDef<Customer>[]>(
     () => [
       { field: 'name', headerName: 'Name' },
-      { field: 'contactInfo', headerName: 'Contact' },
-      { field: 'address', headerName: 'Address' },
+      { field: 'email', headerName: 'Email' },
+      { field: 'phone', headerName: 'Phone', minWidth: 160 },
       { field: 'status', headerName: 'Status', maxWidth: 120 },
       {
         field: 'updatedAt',
@@ -122,105 +201,76 @@ export function Customers() {
         headerName: 'Actions',
         sortable: false,
         filter: false,
-        minWidth: 140,
+        minWidth: 220,
         cellRenderer: (params: { data?: Customer }) => {
           const row = params.data
           if (!row || !canManage) return null
           return (
-            <Button
-              size='sm'
-              variant='outline'
-              onClick={() => {
-                updateMutation.mutate(row)
-              }}
-            >
-              {row.status === 'active' ? 'Deactivate' : 'Activate'}
-            </Button>
+            <div className='flex gap-2'>
+              <Button size='sm' variant='outline' onClick={() => openEditForm(row)}>
+                Edit
+              </Button>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() => {
+                  updateMutation.mutate({
+                    id: row.id,
+                    customer: {
+                      name: row.name,
+                      email: row.email,
+                      phone: row.phone,
+                      status: row.status === 'active' ? 'inactive' : 'active',
+                    },
+                    version: row.version,
+                  })
+                }}
+              >
+                {row.status === 'active' ? 'Deactivate' : 'Activate'}
+              </Button>
+            </div>
           )
         },
       },
     ],
-    [canManage, updateMutation]
+    [canManage, openEditForm, updateMutation]
   )
 
-  const createDisabled =
-    createMutation.isPending ||
-    !form.name.trim() ||
-    !form.contactInfo.trim() ||
-    !form.address.trim()
+  const isSubmitting = createMutation.isPending || updateMutation.isPending
 
   return (
     <WmsPage
       title='Customers'
-      description='Manage customer master data used by sales orders.'
+      description='View, create, update, and sync customer data in real time.'
+      actions={
+        canManage ? (
+          <Button onClick={openCreateForm} disabled={isSubmitting}>
+            Add Customer
+          </Button>
+        ) : undefined
+      }
     >
-      {canManage && (
+      {customersQuery.isError && (
         <Card>
-          <CardHeader>
-            <CardTitle>Create Customer</CardTitle>
-          </CardHeader>
-          <CardContent className='grid gap-4 md:grid-cols-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='customer-name'>Name</Label>
-              <Input
-                id='customer-name'
-                value={form.name}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, name: event.target.value }))
-                }
-                placeholder='ACME Retail'
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='customer-contact'>Contact Info</Label>
-              <Input
-                id='customer-contact'
-                value={form.contactInfo}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, contactInfo: event.target.value }))
-                }
-                placeholder='buyer@acme.example'
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='customer-address'>Address</Label>
-              <Input
-                id='customer-address'
-                value={form.address}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, address: event.target.value }))
-                }
-                placeholder='120 River St, Austin, TX'
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Status</Label>
-              <Select
-                value={form.status}
-                onValueChange={(value) =>
-                  setForm((prev) => ({ ...prev, status: value as RecordStatus }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='Select status' />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className='md:col-span-4 flex justify-end'>
-              <Button
-                onClick={() => createMutation.mutate()}
-                disabled={createDisabled}
-              >
-                Create Customer
-              </Button>
-            </div>
+          <CardContent className='flex items-center justify-between gap-2 py-4'>
+            <p className='text-sm text-destructive'>Failed to load customers.</p>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => {
+                customersQuery.refetch()
+              }}
+            >
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {customersQuery.isLoading && rows.length === 0 && (
+        <Card>
+          <CardContent className='py-4 text-sm text-muted-foreground'>
+            Loading customers...
           </CardContent>
         </Card>
       )}
@@ -228,7 +278,7 @@ export function Customers() {
       <GridToolbar
         query={q}
         onQueryChange={setQuery}
-        placeholder='Filter customers...'
+        placeholder='Filter customers by name, email, or phone...'
       />
 
       <WmsGrid<Customer>
@@ -243,6 +293,110 @@ export function Customers() {
           setSort(next.sortBy, next.sortDir)
         }}
       />
+
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open)
+          if (!open) {
+            resetForm()
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add Customer'}</DialogTitle>
+            <DialogDescription>
+              Changes are synced with the backend and broadcast over realtime topics.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='grid gap-4'>
+            <div className='space-y-2'>
+              <Label htmlFor='customer-name'>Name</Label>
+              <Input
+                id='customer-name'
+                value={form.name}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, name: event.target.value }))
+                  setFormErrors((prev) => ({ ...prev, name: undefined }))
+                }}
+              />
+              {formErrors.name && (
+                <p className='text-xs text-destructive'>{formErrors.name}</p>
+              )}
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='customer-email'>Email</Label>
+              <Input
+                id='customer-email'
+                type='email'
+                value={form.email}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, email: event.target.value }))
+                  setFormErrors((prev) => ({ ...prev, email: undefined }))
+                }}
+              />
+              {formErrors.email && (
+                <p className='text-xs text-destructive'>{formErrors.email}</p>
+              )}
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='customer-phone'>Phone</Label>
+              <Input
+                id='customer-phone'
+                value={form.phone}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, phone: event.target.value }))
+                  setFormErrors((prev) => ({ ...prev, phone: undefined }))
+                }}
+              />
+              {formErrors.phone && (
+                <p className='text-xs text-destructive'>{formErrors.phone}</p>
+              )}
+            </div>
+
+            <div className='space-y-2'>
+              <Label>Status</Label>
+              <Select
+                value={form.status}
+                onValueChange={(value) => {
+                  setForm((prev) => ({ ...prev, status: value as RecordStatus }))
+                }}
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue placeholder='Select status' />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusOptions.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setFormOpen(false)
+                resetForm()
+              }}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitForm} disabled={isSubmitting}>
+              {editingCustomer ? 'Save Changes' : 'Create Customer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </WmsPage>
   )
 }

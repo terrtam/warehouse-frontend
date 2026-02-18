@@ -6,6 +6,7 @@ export type WmsAction =
   | 'categories:manage'
   | 'customers:view'
   | 'customers:manage'
+  | 'suppliers:view'
   | 'suppliers:manage'
   | 'sales-orders:view'
   | 'sales-orders:create'
@@ -29,6 +30,7 @@ const managerActions = new Set<WmsAction>([
   'categories:manage',
   'customers:view',
   'customers:manage',
+  'suppliers:view',
   'suppliers:manage',
   'sales-orders:view',
   'sales-orders:create',
@@ -50,6 +52,7 @@ const managerActions = new Set<WmsAction>([
 const staffActions = new Set<WmsAction>([
   'products:view',
   'customers:view',
+  'suppliers:view',
   'sales-orders:view',
   'sales-orders:ship',
   'purchase-orders:view',
@@ -66,4 +69,3 @@ export const canRole = (role: Role, action: WmsAction): boolean => {
 
 export const canAnyRole = (roles: Role[], action: WmsAction): boolean =>
   roles.some((role) => canRole(role, action))
-

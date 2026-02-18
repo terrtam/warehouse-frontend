@@ -35,12 +35,18 @@ export type ProductInput = Pick<
 
 export type CustomerInput = Pick<
   Customer,
-  'name' | 'contactInfo' | 'address' | 'status'
+  'name' | 'email' | 'phone' | 'status'
 >
+
+export type CustomerListInput = {
+  updatedAfter?: string
+  page?: number
+  size?: number
+}
 
 export type SupplierInput = Pick<
   Supplier,
-  'name' | 'contactInfo' | 'address' | 'status'
+  'name' | 'email' | 'phone' | 'address' | 'status'
 >
 
 export type SalesOrderLineInput = Pick<SalesOrderLine, 'productId' | 'quantity'> & {
@@ -108,7 +114,7 @@ export interface ProductRepository {
 }
 
 export interface CustomerRepository {
-  list(): Promise<Customer[]>
+  list(input?: CustomerListInput): Promise<Customer[]>
   create(input: CustomerInput, actor: Actor): Promise<Customer>
   update(
     id: string,
@@ -175,4 +181,3 @@ export interface WmsRepository {
   inventory: InventoryRepository
   inventoryTransactions: InventoryTransactionRepository
 }
-

@@ -111,6 +111,7 @@ export class StompRealtimeTransport implements RealtimeTransport {
     RealtimeTopic,
     Map<RealtimeHandler, SubscriptionLike | null>
   >()
+  private connectHandlers = new Set<() => void>()
 
   constructor(private readonly clientFactory: () => StompClientLike = createStompClient) {}
 
@@ -120,6 +121,9 @@ export class StompRealtimeTransport implements RealtimeTransport {
     const client = this.clientFactory()
     client.onConnect = () => {
       this.attachPendingSubscriptions()
+      this.connectHandlers.forEach((handler) => {
+        handler()
+      })
     }
     client.onWebSocketClose = () => {
       this.markSubscriptionsPending()
@@ -127,6 +131,13 @@ export class StompRealtimeTransport implements RealtimeTransport {
 
     this.client = client
     client.activate()
+  }
+
+  onConnected(handler: () => void) {
+    this.connectHandlers.add(handler)
+    return () => {
+      this.connectHandlers.delete(handler)
+    }
   }
 
   disconnect() {

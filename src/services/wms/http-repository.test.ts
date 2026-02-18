@@ -15,7 +15,14 @@ vi.mock('@/services/api/client', () => ({
   },
 }))
 
-import { httpProductsRepository, mapProductDto } from './http-repository'
+import {
+  httpCustomersRepository,
+  httpProductsRepository,
+  httpSuppliersRepository,
+  mapCustomerDto,
+  mapProductDto,
+  mapSupplierDto,
+} from './http-repository'
 
 describe('httpProductsRepository', () => {
   beforeEach(() => {
@@ -176,6 +183,198 @@ describe('httpProductsRepository', () => {
   })
 })
 
+describe('httpCustomersRepository', () => {
+  beforeEach(() => {
+    get.mockReset()
+    post.mockReset()
+    put.mockReset()
+  })
+
+  it('maps list response from backend dto into Customer model', async () => {
+    get.mockResolvedValue({
+      data: [
+        {
+          id: 'cus-1',
+          name: 'ACME Retail',
+          email: 'buyer@acme.example',
+          phone: '+1 555 1000',
+          status: 'ACTIVE',
+          version: 5,
+          created_at: '2026-02-01T10:00:00.000Z',
+          updated_at: '2026-02-04T10:00:00.000Z',
+        },
+      ],
+    })
+
+    const rows = await httpCustomersRepository.list()
+
+    expect(rows).toEqual([
+      {
+        id: 'cus-1',
+        name: 'ACME Retail',
+        email: 'buyer@acme.example',
+        phone: '+1 555 1000',
+        status: 'active',
+        version: 5,
+        createdAt: '2026-02-01T10:00:00.000Z',
+        updatedAt: '2026-02-04T10:00:00.000Z',
+      },
+    ])
+  })
+
+  it('passes updatedAfter params when replaying missed customer updates', async () => {
+    get.mockResolvedValue({ data: [] })
+
+    await httpCustomersRepository.list({
+      updatedAfter: '2026-02-10T10:00:00.000Z',
+      page: 0,
+      size: 200,
+    })
+
+    expect(get).toHaveBeenCalledWith('/api/customers', {
+      params: {
+        updatedAfter: '2026-02-10T10:00:00.000Z',
+        page: 0,
+        size: 200,
+      },
+    })
+  })
+
+  it('sends optimistic concurrency metadata for customer updates', async () => {
+    put.mockResolvedValue({
+      data: {
+        id: 'cus-2',
+        name: 'Zenith Stores',
+        email: 'ops@zenith.example',
+        phone: '+1 555 2000',
+        status: 'INACTIVE',
+        version: 9,
+        createdAt: '2026-02-01T10:00:00.000Z',
+        updatedAt: '2026-02-05T10:00:00.000Z',
+      },
+    })
+
+    await httpCustomersRepository.update(
+      'cus-2',
+      {
+        name: 'Zenith Stores',
+        email: 'ops@zenith.example',
+        phone: '+1 555 2000',
+        status: 'inactive',
+      },
+      {
+        username: 'manager',
+        role: 'manager',
+      },
+      8
+    )
+
+    expect(put).toHaveBeenCalledWith(
+      '/api/customers/cus-2',
+      expect.objectContaining({
+        version: 8,
+      }),
+      {
+        headers: {
+          'If-Match': '8',
+        },
+        params: {
+          expectedVersion: 8,
+        },
+      }
+    )
+  })
+})
+
+describe('httpSuppliersRepository', () => {
+  beforeEach(() => {
+    get.mockReset()
+    post.mockReset()
+    put.mockReset()
+  })
+
+  it('maps list response from backend dto into Supplier model', async () => {
+    get.mockResolvedValue({
+      data: [
+        {
+          id: 'sup-1',
+          name: 'Apex Supply Co.',
+          email: 'sales@apex.example',
+          phone: '+1 555 3000',
+          address: '9 Industrial Rd, Denver, CO',
+          status: 'ACTIVE',
+          version: 3,
+          created_at: '2026-02-01T10:00:00.000Z',
+          updated_at: '2026-02-06T10:00:00.000Z',
+        },
+      ],
+    })
+
+    const rows = await httpSuppliersRepository.list()
+
+    expect(rows).toEqual([
+      {
+        id: 'sup-1',
+        name: 'Apex Supply Co.',
+        email: 'sales@apex.example',
+        phone: '+1 555 3000',
+        address: '9 Industrial Rd, Denver, CO',
+        status: 'active',
+        version: 3,
+        createdAt: '2026-02-01T10:00:00.000Z',
+        updatedAt: '2026-02-06T10:00:00.000Z',
+      },
+    ])
+  })
+
+  it('sends optimistic concurrency metadata for supplier updates', async () => {
+    put.mockResolvedValue({
+      data: {
+        id: 'sup-2',
+        name: 'Northline Distribution',
+        email: 'contact@northline.example',
+        phone: '+1 555 4000',
+        address: '200 Logistics Pkwy, Columbus, OH',
+        status: 'INACTIVE',
+        version: 6,
+        createdAt: '2026-02-01T10:00:00.000Z',
+        updatedAt: '2026-02-07T10:00:00.000Z',
+      },
+    })
+
+    await httpSuppliersRepository.update(
+      'sup-2',
+      {
+        name: 'Northline Distribution',
+        email: 'contact@northline.example',
+        phone: '+1 555 4000',
+        address: '200 Logistics Pkwy, Columbus, OH',
+        status: 'inactive',
+      },
+      {
+        username: 'manager',
+        role: 'manager',
+      },
+      5
+    )
+
+    expect(put).toHaveBeenCalledWith(
+      '/api/suppliers/sup-2',
+      expect.objectContaining({
+        version: 5,
+      }),
+      {
+        headers: {
+          'If-Match': '5',
+        },
+        params: {
+          expectedVersion: 5,
+        },
+      }
+    )
+  })
+})
+
 describe('mapProductDto', () => {
   it('supports nested category payloads', () => {
     const mapped = mapProductDto({
@@ -198,6 +397,43 @@ describe('mapProductDto', () => {
 
     expect(mapped.categoryId).toBe('cat-5')
     expect(mapped.categoryName).toBe('Packing')
+    expect(mapped.status).toBe('inactive')
+  })
+})
+
+describe('mapCustomerDto', () => {
+  it('supports legacy contactInfo payloads', () => {
+    const mapped = mapCustomerDto({
+      id: 'cus-3',
+      name: 'Legacy Customer',
+      contactInfo: 'legacy@example.com, +1 555 5555',
+      status: 'inactive',
+      version: 1,
+      createdAt: '2026-02-01T00:00:00.000Z',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    })
+
+    expect(mapped.email).toBe('legacy@example.com')
+    expect(mapped.phone).toBe('+1 555 5555')
+    expect(mapped.status).toBe('inactive')
+  })
+})
+
+describe('mapSupplierDto', () => {
+  it('supports legacy contactInfo payloads', () => {
+    const mapped = mapSupplierDto({
+      id: 'sup-3',
+      name: 'Legacy Supplier',
+      contactInfo: 'legacy@supplier.example, +1 555 6000',
+      address: 'Legacy address',
+      status: 'inactive',
+      version: 1,
+      createdAt: '2026-02-01T00:00:00.000Z',
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    })
+
+    expect(mapped.email).toBe('legacy@supplier.example')
+    expect(mapped.phone).toBe('+1 555 6000')
     expect(mapped.status).toBe('inactive')
   })
 })

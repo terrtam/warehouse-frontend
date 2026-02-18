@@ -313,8 +313,8 @@ const seed = (): DbState => {
     {
       id: 'cus-acme',
       name: 'ACME Retail',
-      contactInfo: 'buyer@acme.example, +1 555 1000',
-      address: '120 River St, Austin, TX',
+      email: 'buyer@acme.example',
+      phone: '+1 555 1000',
       status: 'active',
       version: 1,
       createdAt,
@@ -323,8 +323,8 @@ const seed = (): DbState => {
     {
       id: 'cus-zenith',
       name: 'Zenith Stores',
-      contactInfo: 'ops@zenith.example, +1 555 2000',
-      address: '45 Pine Ave, Seattle, WA',
+      email: 'ops@zenith.example',
+      phone: '+1 555 2000',
       status: 'active',
       version: 1,
       createdAt,
@@ -336,7 +336,8 @@ const seed = (): DbState => {
     {
       id: 'sup-apex',
       name: 'Apex Supply Co.',
-      contactInfo: 'sales@apex.example, +1 555 3000',
+      email: 'sales@apex.example',
+      phone: '+1 555 3000',
       address: '9 Industrial Rd, Denver, CO',
       status: 'active',
       version: 1,
@@ -346,7 +347,8 @@ const seed = (): DbState => {
     {
       id: 'sup-north',
       name: 'Northline Distribution',
-      contactInfo: 'contact@northline.example, +1 555 4000',
+      email: 'contact@northline.example',
+      phone: '+1 555 4000',
       address: '200 Logistics Pkwy, Columbus, OH',
       status: 'active',
       version: 1,
@@ -543,8 +545,8 @@ export const mockWmsRepository: WmsRepository = {
       const customer: Customer = {
         id: nextId('cus'),
         name: input.name.trim(),
-        contactInfo: input.contactInfo.trim(),
-        address: input.address.trim(),
+        email: input.email.trim(),
+        phone: input.phone.trim(),
         status: input.status,
         version: 1,
         createdAt: timestamp,
@@ -558,8 +560,8 @@ export const mockWmsRepository: WmsRepository = {
       const customer = findById(state.customers, id, 'Customer')
       assertVersion(expectedVersion, customer.version)
       customer.name = input.name.trim()
-      customer.contactInfo = input.contactInfo.trim()
-      customer.address = input.address.trim()
+      customer.email = input.email.trim()
+      customer.phone = input.phone.trim()
       customer.status = input.status
       touch(customer)
       return deepClone(customer)
@@ -575,7 +577,8 @@ export const mockWmsRepository: WmsRepository = {
       const supplier: Supplier = {
         id: nextId('sup'),
         name: input.name.trim(),
-        contactInfo: input.contactInfo.trim(),
+        email: input.email.trim(),
+        phone: input.phone.trim(),
         address: input.address.trim(),
         status: input.status,
         version: 1,
@@ -590,7 +593,8 @@ export const mockWmsRepository: WmsRepository = {
       const supplier = findById(state.suppliers, id, 'Supplier')
       assertVersion(expectedVersion, supplier.version)
       supplier.name = input.name.trim()
-      supplier.contactInfo = input.contactInfo.trim()
+      supplier.email = input.email.trim()
+      supplier.phone = input.phone.trim()
       supplier.address = input.address.trim()
       supplier.status = input.status
       touch(supplier)
