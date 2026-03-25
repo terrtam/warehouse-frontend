@@ -4,6 +4,10 @@
 
 React + Vite admin UI for the Warehouse Management System. It consumes the backend REST API and WebSocket topics for realtime updates.
 
+Repository:
+
+- Backend: [warehouse-backend](https://github.com/terrtam/warehouse-backend)
+
 ## Tech Stack
 
 - React 19 + TypeScript
