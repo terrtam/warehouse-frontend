@@ -9,6 +9,14 @@ import { useGridUrlState } from '@/hooks/use-grid-url-state'
 import { WmsGrid } from '@/components/ag-grid/wms-grid'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -30,7 +38,10 @@ const route = getRouteApi('/_authenticated/sales-orders/')
 type DraftLine = {
   productId: string
   productName: string
+  supplierId?: string
+  supplierName?: string
   quantity: number
+  unitPrice: number
 }
 
 type SalesOrderRow = {
@@ -39,6 +50,9 @@ type SalesOrderRow = {
   status: string
   lineCount: number
   totalQuantity: number
+  reservedQuantity: number
+  backorderedQuantity: number
+  createdAt: string
   updatedAt: string
 }
 
@@ -73,12 +87,19 @@ export function SalesOrders() {
     queryKey: wmsQueryKeys.products,
     queryFn: () => wmsRepository.products.list(),
   })
+  const suppliersQuery = useQuery({
+    queryKey: wmsQueryKeys.suppliers,
+    queryFn: () => wmsRepository.suppliers.list(),
+  })
 
   const [customerId, setCustomerId] = useState('')
+  const [supplierId, setSupplierId] = useState('')
   const [lineProductId, setLineProductId] = useState('')
   const [lineQuantity, setLineQuantity] = useState('1')
+  const [lineUnitPrice, setLineUnitPrice] = useState('')
   const [draftLines, setDraftLines] = useState<DraftLine[]>([])
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [isShipDialogOpen, setIsShipDialogOpen] = useState(false)
   const [shipmentQty, setShipmentQty] = useState<Record<string, string>>({})
 
   const createMutation = useMutation({
@@ -88,7 +109,9 @@ export function SalesOrders() {
           customerId,
           lines: draftLines.map((line) => ({
             productId: line.productId,
+            supplierId: line.supplierId,
             quantity: line.quantity,
+            unitPrice: line.unitPrice,
           })),
         },
         getCurrentActor()
@@ -96,8 +119,10 @@ export function SalesOrders() {
     onSuccess: () => {
       toast.success('Sales order created')
       setCustomerId('')
+      setSupplierId('')
       setLineProductId('')
       setLineQuantity('1')
+      setLineUnitPrice('')
       setDraftLines([])
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.salesOrders })
     },
@@ -142,6 +167,8 @@ export function SalesOrders() {
     onSuccess: () => {
       toast.success('Shipment processed')
       setShipmentQty({})
+      setIsShipDialogOpen(false)
+      setSelectedOrderId(null)
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.salesOrders })
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.inventory })
       queryClient.invalidateQueries({
@@ -161,7 +188,24 @@ export function SalesOrders() {
       customerName: order.customerName,
       status: order.status,
       lineCount: order.lines.length,
-      totalQuantity: order.lines.reduce((sum, line) => sum + line.quantity, 0),
+      totalQuantity: order.lines.reduce(
+        (sum, line) => sum + line.quantityOrdered,
+        0
+      ),
+      reservedQuantity: order.lines.reduce(
+        (sum, line) => sum + line.quantityReserved,
+        0
+      ),
+      backorderedQuantity: order.lines.reduce(
+        (sum, line) =>
+          sum +
+          Math.max(
+            0,
+            line.quantityOrdered - line.quantityShipped - line.quantityReserved
+          ),
+        0
+      ),
+      createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     }))
 
@@ -189,7 +233,15 @@ export function SalesOrders() {
       { field: 'customerName', headerName: 'Customer' },
       { field: 'status', headerName: 'Status', minWidth: 160 },
       { field: 'lineCount', headerName: 'Lines', maxWidth: 110 },
-      { field: 'totalQuantity', headerName: 'Qty', maxWidth: 110 },
+      { field: 'totalQuantity', headerName: 'Ordered', maxWidth: 120 },
+      { field: 'reservedQuantity', headerName: 'Reserved', maxWidth: 120 },
+      { field: 'backorderedQuantity', headerName: 'Backorder', maxWidth: 130 },
+      {
+        field: 'createdAt',
+        headerName: 'Created',
+        valueFormatter: ({ value }) =>
+          typeof value === 'string' ? new Date(value).toLocaleString() : '',
+      },
       {
         field: 'updatedAt',
         headerName: 'Updated',
@@ -224,16 +276,18 @@ export function SalesOrders() {
                 </Button>
               )}
               {canShip &&
-                (fullOrder.status === 'confirmed' ||
+                (fullOrder.status === 'processing' ||
+                  fullOrder.status === 'confirmed' ||
                   fullOrder.status === 'partially_shipped') && (
                   <Button
                     size='sm'
                     variant='outline'
-                    onClick={() => {
-                      setSelectedOrderId(fullOrder.id)
-                    }}
-                  >
-                    Ship
+                  onClick={() => {
+                    setSelectedOrderId(fullOrder.id)
+                    setIsShipDialogOpen(true)
+                  }}
+                >
+                  Ship
                   </Button>
                 )}
               {canCancel &&
@@ -263,34 +317,64 @@ export function SalesOrders() {
     if (!lineProductId || Number.isNaN(qty) || qty <= 0) return
     const product = activeProducts.find((item) => item.id === lineProductId)
     if (!product) return
+    if (!supplierId) return
+    const supplier = (suppliersQuery.data ?? []).find(
+      (item) => item.id === supplierId
+    )
+    if (!supplier) return
+    const explicitUnitPrice = Number(lineUnitPrice)
+    const unitPrice =
+      lineUnitPrice.trim().length === 0 || Number.isNaN(explicitUnitPrice)
+        ? product.defaultSalePrice
+        : explicitUnitPrice
 
     setDraftLines((prev) => {
       const existing = prev.find((line) => line.productId === lineProductId)
       if (!existing) {
-        return [...prev, { productId: product.id, productName: product.name, quantity: qty }]
+        return [
+          ...prev,
+          {
+            productId: product.id,
+            productName: product.name,
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            quantity: qty,
+            unitPrice,
+          },
+        ]
       }
       return prev.map((line) =>
         line.productId === lineProductId
-          ? { ...line, quantity: line.quantity + qty }
+          ? { ...line, quantity: line.quantity + qty, unitPrice }
           : line
       )
     })
     setLineProductId('')
     setLineQuantity('1')
+    setLineUnitPrice('')
   }
 
   const createDisabled =
-    createMutation.isPending || !customerId || draftLines.length === 0
+    createMutation.isPending || !customerId || !supplierId || draftLines.length === 0
 
   const canShipSelected =
     selectedOrder &&
-    (selectedOrder.status === 'confirmed' ||
+    (selectedOrder.status === 'processing' ||
+      selectedOrder.status === 'confirmed' ||
       selectedOrder.status === 'partially_shipped')
 
   const shipDisabled =
     shipMutation.isPending ||
     !canShipSelected ||
     selectedOrder.lines.every((line) => Number(shipmentQty[line.id] ?? 0) <= 0)
+
+  const handleShipDialogOpenChange = (open: boolean) => {
+    setIsShipDialogOpen(open)
+    if (!open) {
+      setShipmentQty({})
+      setSelectedOrderId(null)
+    }
+  }
 
   return (
     <WmsPage
@@ -303,7 +387,7 @@ export function SalesOrders() {
             <CardTitle>Create Sales Order</CardTitle>
           </CardHeader>
           <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-4'>
+            <div className='grid gap-4 md:grid-cols-2'>
               <div className='space-y-2'>
                 <Label>Customer</Label>
                 <Select value={customerId} onValueChange={setCustomerId}>
@@ -321,6 +405,32 @@ export function SalesOrders() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className='space-y-2'>
+                <Label>Supplier</Label>
+                <Select
+                  value={supplierId}
+                  onValueChange={setSupplierId}
+                  disabled={draftLines.length > 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select supplier' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(suppliersQuery.data ?? [])
+                      .filter((item) => item.status === 'active')
+                      .map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className='text-xs text-muted-foreground'>
+                  Applies to all lines in this order.
+                </p>
+              </div>
+            </div>
+            <div className='grid gap-4 md:grid-cols-5'>
               <div className='space-y-2'>
                 <Label>Product</Label>
                 <Select value={lineProductId} onValueChange={setLineProductId}>
@@ -346,6 +456,18 @@ export function SalesOrders() {
                   onChange={(event) => setLineQuantity(event.target.value)}
                 />
               </div>
+              <div className='space-y-2'>
+                <Label htmlFor='so-line-price'>Unit Price</Label>
+                <Input
+                  id='so-line-price'
+                  type='number'
+                  min='0'
+                  step='0.01'
+                  value={lineUnitPrice}
+                  onChange={(event) => setLineUnitPrice(event.target.value)}
+                  placeholder='Optional'
+                />
+              </div>
               <div className='flex items-end'>
                 <Button variant='outline' onClick={addLine}>
                   Add Line
@@ -356,20 +478,29 @@ export function SalesOrders() {
             {draftLines.length > 0 && (
               <div className='space-y-2 rounded-md border p-3'>
                 <p className='text-sm font-medium'>Draft Lines</p>
+                <p className='text-xs text-muted-foreground'>
+                  Supplier: {draftLines[0]?.supplierName ?? 'N/A'}
+                </p>
                 {draftLines.map((line) => (
                   <div
                     key={line.productId}
                     className='flex items-center justify-between text-sm'
                   >
-                    <span>{`${line.productName} x ${line.quantity}`}</span>
+                    <span>{`${line.productName}${line.supplierName ? ` / ${line.supplierName}` : ''} x ${line.quantity} @ $${line.unitPrice.toFixed(2)}`}</span>
                     <Button
                       size='sm'
                       variant='ghost'
-                      onClick={() =>
-                        setDraftLines((prev) =>
-                          prev.filter((item) => item.productId !== line.productId)
-                        )
-                      }
+                      onClick={() => {
+                        setDraftLines((prev) => {
+                          const next = prev.filter(
+                            (item) => item.productId !== line.productId
+                          )
+                          if (next.length === 0) {
+                            setSupplierId('')
+                          }
+                          return next
+                        })
+                      }}
                     >
                       Remove
                     </Button>
@@ -391,38 +522,46 @@ export function SalesOrders() {
       )}
 
       {canShip && selectedOrder && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{`Ship ${selectedOrder.id}`}</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            {selectedOrder.lines.map((line: SalesOrderLine) => {
-              const remaining = line.quantity - line.shippedQuantity
-              if (remaining <= 0) return null
-              return (
-                <div key={line.id} className='grid gap-2 md:grid-cols-3'>
-                  <Label className='self-center'>{`${line.productName} (remaining: ${remaining})`}</Label>
-                  <Input
-                    type='number'
-                    min='0'
-                    max={remaining}
-                    value={shipmentQty[line.id] ?? ''}
-                    onChange={(event) =>
-                      setShipmentQty((prev) => ({
-                        ...prev,
-                        [line.id]: event.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              )
-            })}
-            <div className='flex justify-end gap-2'>
+        <Dialog open={isShipDialogOpen} onOpenChange={handleShipDialogOpenChange}>
+          <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>
+            <DialogHeader className='text-start'>
+              <DialogTitle>{`Ship ${selectedOrder.id}`}</DialogTitle>
+              <DialogDescription>
+                Enter shipped quantities for each line item.
+              </DialogDescription>
+            </DialogHeader>
+            <div className='space-y-3'>
+              {selectedOrder.lines.map((line: SalesOrderLine) => {
+                const remaining = line.quantityOrdered - line.quantityShipped
+                const backorder = Math.max(
+                  0,
+                  line.quantityOrdered - line.quantityReserved - line.quantityShipped
+                )
+                if (remaining <= 0) return null
+                return (
+                  <div key={line.id} className='grid gap-2 md:grid-cols-3'>
+                    <Label className='self-center'>{`${line.productName} (ordered: ${line.quantityOrdered}, reserved: ${line.quantityReserved}, shipped: ${line.quantityShipped}, backorder: ${backorder})`}</Label>
+                    <Input
+                      type='number'
+                      min='0'
+                      max={Math.min(remaining, line.quantityReserved)}
+                      value={shipmentQty[line.id] ?? ''}
+                      onChange={(event) =>
+                        setShipmentQty((prev) => ({
+                          ...prev,
+                          [line.id]: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                )
+              })}
+            </div>
+            <DialogFooter className='gap-2'>
               <Button
                 variant='outline'
                 onClick={() => {
-                  setSelectedOrderId(null)
-                  setShipmentQty({})
+                  handleShipDialogOpenChange(false)
                 }}
               >
                 Close
@@ -436,9 +575,9 @@ export function SalesOrders() {
               >
                 Ship Quantities
               </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       <GridToolbar

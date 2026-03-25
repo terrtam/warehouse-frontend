@@ -35,6 +35,7 @@ export function Categories() {
   })
 
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [status, setStatus] = useState<RecordStatus>('active')
 
   const categoriesQuery = useQuery({
@@ -47,6 +48,7 @@ export function Categories() {
       wmsRepository.categories.create(
         {
           name,
+          description,
           status,
         },
         getCurrentActor()
@@ -54,6 +56,7 @@ export function Categories() {
     onSuccess: () => {
       toast.success('Category created')
       setName('')
+      setDescription('')
       setStatus('active')
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.categories })
     },
@@ -66,6 +69,7 @@ export function Categories() {
         row.id,
         {
           name: row.name,
+          description: row.description,
           status: row.status === 'active' ? 'inactive' : 'active',
         },
         getCurrentActor(),
@@ -82,7 +86,10 @@ export function Categories() {
     const rows = categoriesQuery.data ?? []
     const lowered = q.toLowerCase()
     const bySearch = rows.filter(
-      (row) => lowered.length === 0 || row.name.toLowerCase().includes(lowered)
+      (row) =>
+        lowered.length === 0 ||
+        row.name.toLowerCase().includes(lowered) ||
+        row.description.toLowerCase().includes(lowered)
     )
     return sortRows(bySearch, sortBy, sortDir)
   }, [categoriesQuery.data, q, sortBy, sortDir])
@@ -90,6 +97,7 @@ export function Categories() {
   const columns = useMemo<ColDef<Category>[]>(
     () => [
       { field: 'name', headerName: 'Name' },
+      { field: 'description', headerName: 'Description', minWidth: 220 },
       { field: 'status', headerName: 'Status' },
       { field: 'version', headerName: 'Version', maxWidth: 120 },
       {
@@ -134,7 +142,7 @@ export function Categories() {
           <CardHeader>
             <CardTitle>Create Category</CardTitle>
           </CardHeader>
-          <CardContent className='grid gap-4 sm:grid-cols-3'>
+          <CardContent className='grid gap-4 sm:grid-cols-4'>
             <div className='space-y-2'>
               <Label htmlFor='category-name'>Name</Label>
               <Input
@@ -142,6 +150,15 @@ export function Categories() {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder='Category name'
+              />
+            </div>
+            <div className='space-y-2 sm:col-span-2'>
+              <Label htmlFor='category-description'>Description</Label>
+              <Input
+                id='category-description'
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder='Optional description'
               />
             </div>
             <div className='space-y-2'>
@@ -174,7 +191,7 @@ export function Categories() {
       <GridToolbar
         query={q}
         onQueryChange={setQuery}
-        placeholder='Filter categories by name...'
+        placeholder='Filter categories by name or description...'
       />
 
       <WmsGrid<Category>

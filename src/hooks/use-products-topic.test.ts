@@ -10,19 +10,21 @@ describe('invalidateProductsTopicQueries', () => {
 
     invalidateProductsTopicQueries(queryClient as never)
 
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(4)
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(5)
     expect(queryClient.invalidateQueries).toHaveBeenNthCalledWith(1, {
-      queryKey: wmsQueryKeys.products,
+      queryKey: wmsQueryKeys.categories,
     })
     expect(queryClient.invalidateQueries).toHaveBeenNthCalledWith(2, {
-      queryKey: wmsQueryKeys.inventory,
+      queryKey: wmsQueryKeys.products,
     })
     expect(queryClient.invalidateQueries).toHaveBeenNthCalledWith(3, {
-      queryKey: wmsQueryKeys.salesOrders,
+      queryKey: wmsQueryKeys.inventory,
     })
     expect(queryClient.invalidateQueries).toHaveBeenNthCalledWith(4, {
+      queryKey: wmsQueryKeys.salesOrders,
+    })
+    expect(queryClient.invalidateQueries).toHaveBeenNthCalledWith(5, {
       queryKey: wmsQueryKeys.purchaseOrders,
     })
   })
 })
-

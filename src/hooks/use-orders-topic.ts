@@ -11,8 +11,8 @@ export const useOrdersTopic = () => {
     queryClient.invalidateQueries({ queryKey: wmsQueryKeys.purchaseOrders })
     queryClient.invalidateQueries({ queryKey: wmsQueryKeys.inventory })
     queryClient.invalidateQueries({ queryKey: wmsQueryKeys.inventoryTransactions })
+    queryClient.invalidateQueries({ queryKey: wmsQueryKeys.communications })
   }, [queryClient])
 
   useTopicSubscription(realtimeTopics.orders, onMessage)
 }
-

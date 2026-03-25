@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import { useCategoriesTopic } from '@/hooks/use-categories-topic'
+import { useCommunicationsTopic } from '@/hooks/use-communications-topic'
 import { useCustomersTopic } from '@/hooks/use-customers-topic'
 import { useInventoryTopic } from '@/hooks/use-inventory-topic'
 import { useOrdersTopic } from '@/hooks/use-orders-topic'
@@ -14,11 +16,13 @@ export function RealtimeSyncBoundary() {
     }
   }, [])
 
+  useCategoriesTopic()
   useProductsTopic()
   useInventoryTopic()
   useOrdersTopic()
   useCustomersTopic()
   useSuppliersTopic()
+  useCommunicationsTopic()
 
   return null
 }

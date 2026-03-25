@@ -9,6 +9,14 @@ import { useGridUrlState } from '@/hooks/use-grid-url-state'
 import { WmsGrid } from '@/components/ag-grid/wms-grid'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -31,6 +39,7 @@ type DraftLine = {
   productId: string
   productName: string
   quantity: number
+  unitPrice: number
 }
 
 type PurchaseOrderRow = {
@@ -39,6 +48,7 @@ type PurchaseOrderRow = {
   status: string
   lineCount: number
   totalQuantity: number
+  createdAt: string
   updatedAt: string
 }
 
@@ -73,12 +83,18 @@ export function PurchaseOrders() {
     queryKey: wmsQueryKeys.products,
     queryFn: () => wmsRepository.products.list(),
   })
+  const communicationsQuery = useQuery({
+    queryKey: wmsQueryKeys.communications,
+    queryFn: () => wmsRepository.communications.list(),
+  })
 
   const [supplierId, setSupplierId] = useState('')
   const [lineProductId, setLineProductId] = useState('')
   const [lineQuantity, setLineQuantity] = useState('1')
+  const [lineUnitPrice, setLineUnitPrice] = useState('')
   const [draftLines, setDraftLines] = useState<DraftLine[]>([])
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [isReceiveDialogOpen, setIsReceiveDialogOpen] = useState(false)
   const [receiptQty, setReceiptQty] = useState<Record<string, string>>({})
 
   const createMutation = useMutation({
@@ -89,6 +105,7 @@ export function PurchaseOrders() {
           lines: draftLines.map((line) => ({
             productId: line.productId,
             quantity: line.quantity,
+            unitPrice: line.unitPrice,
           })),
         },
         getCurrentActor()
@@ -98,6 +115,7 @@ export function PurchaseOrders() {
       setSupplierId('')
       setLineProductId('')
       setLineQuantity('1')
+      setLineUnitPrice('')
       setDraftLines([])
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.purchaseOrders })
     },
@@ -142,6 +160,8 @@ export function PurchaseOrders() {
     onSuccess: () => {
       toast.success('Receipt processed')
       setReceiptQty({})
+      setIsReceiveDialogOpen(false)
+      setSelectedOrderId(null)
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.purchaseOrders })
       queryClient.invalidateQueries({ queryKey: wmsQueryKeys.inventory })
       queryClient.invalidateQueries({
@@ -161,7 +181,11 @@ export function PurchaseOrders() {
       supplierName: order.supplierName,
       status: order.status,
       lineCount: order.lines.length,
-      totalQuantity: order.lines.reduce((sum, line) => sum + line.quantity, 0),
+      totalQuantity: order.lines.reduce(
+        (sum, line) => sum + line.quantityOrdered,
+        0
+      ),
+      createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     }))
 
@@ -192,6 +216,12 @@ export function PurchaseOrders() {
       { field: 'status', headerName: 'Status', minWidth: 170 },
       { field: 'lineCount', headerName: 'Lines', maxWidth: 110 },
       { field: 'totalQuantity', headerName: 'Qty', maxWidth: 110 },
+      {
+        field: 'createdAt',
+        headerName: 'Created',
+        valueFormatter: ({ value }) =>
+          typeof value === 'string' ? new Date(value).toLocaleString() : '',
+      },
       {
         field: 'updatedAt',
         headerName: 'Updated',
@@ -231,11 +261,12 @@ export function PurchaseOrders() {
                   <Button
                     size='sm'
                     variant='outline'
-                    onClick={() => {
-                      setSelectedOrderId(fullOrder.id)
-                    }}
-                  >
-                    Receive
+                  onClick={() => {
+                    setSelectedOrderId(fullOrder.id)
+                    setIsReceiveDialogOpen(true)
+                  }}
+                >
+                  Receive
                   </Button>
                 )}
               {canCancel &&
@@ -265,20 +296,34 @@ export function PurchaseOrders() {
     if (!lineProductId || Number.isNaN(qty) || qty <= 0) return
     const product = activeProducts.find((item) => item.id === lineProductId)
     if (!product) return
+    const explicitUnitPrice = Number(lineUnitPrice)
+    const unitPrice =
+      lineUnitPrice.trim().length === 0 || Number.isNaN(explicitUnitPrice)
+        ? product.costPrice
+        : explicitUnitPrice
 
     setDraftLines((prev) => {
       const existing = prev.find((line) => line.productId === lineProductId)
       if (!existing) {
-        return [...prev, { productId: product.id, productName: product.name, quantity: qty }]
+        return [
+          ...prev,
+          {
+            productId: product.id,
+            productName: product.name,
+            quantity: qty,
+            unitPrice,
+          },
+        ]
       }
       return prev.map((line) =>
         line.productId === lineProductId
-          ? { ...line, quantity: line.quantity + qty }
+          ? { ...line, quantity: line.quantity + qty, unitPrice }
           : line
       )
     })
     setLineProductId('')
     setLineQuantity('1')
+    setLineUnitPrice('')
   }
 
   const createDisabled =
@@ -294,6 +339,14 @@ export function PurchaseOrders() {
     !canReceiveSelected ||
     selectedOrder.lines.every((line) => Number(receiptQty[line.id] ?? 0) <= 0)
 
+  const handleReceiveDialogOpenChange = (open: boolean) => {
+    setIsReceiveDialogOpen(open)
+    if (!open) {
+      setReceiptQty({})
+      setSelectedOrderId(null)
+    }
+  }
+
   return (
     <WmsPage
       title='Purchase Orders'
@@ -305,10 +358,14 @@ export function PurchaseOrders() {
             <CardTitle>Create Purchase Order</CardTitle>
           </CardHeader>
           <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-4'>
+            <div className='grid gap-4 md:grid-cols-2'>
               <div className='space-y-2'>
                 <Label>Supplier</Label>
-                <Select value={supplierId} onValueChange={setSupplierId}>
+                <Select
+                  value={supplierId}
+                  onValueChange={setSupplierId}
+                  disabled={draftLines.length > 0}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder='Select supplier' />
                   </SelectTrigger>
@@ -322,7 +379,12 @@ export function PurchaseOrders() {
                       ))}
                   </SelectContent>
                 </Select>
+                <p className='text-xs text-muted-foreground'>
+                  Applies to all lines in this order.
+                </p>
               </div>
+            </div>
+            <div className='grid gap-4 md:grid-cols-5'>
               <div className='space-y-2'>
                 <Label>Product</Label>
                 <Select value={lineProductId} onValueChange={setLineProductId}>
@@ -348,6 +410,18 @@ export function PurchaseOrders() {
                   onChange={(event) => setLineQuantity(event.target.value)}
                 />
               </div>
+              <div className='space-y-2'>
+                <Label htmlFor='po-line-price'>Unit Cost</Label>
+                <Input
+                  id='po-line-price'
+                  type='number'
+                  min='0'
+                  step='0.01'
+                  value={lineUnitPrice}
+                  onChange={(event) => setLineUnitPrice(event.target.value)}
+                  placeholder='Optional'
+                />
+              </div>
               <div className='flex items-end'>
                 <Button variant='outline' onClick={addLine}>
                   Add Line
@@ -358,12 +432,17 @@ export function PurchaseOrders() {
             {draftLines.length > 0 && (
               <div className='space-y-2 rounded-md border p-3'>
                 <p className='text-sm font-medium'>Draft Lines</p>
+                <p className='text-xs text-muted-foreground'>
+                  Supplier:{' '}
+                  {(suppliersQuery.data ?? []).find((item) => item.id === supplierId)?.name ??
+                    'N/A'}
+                </p>
                 {draftLines.map((line) => (
                   <div
                     key={line.productId}
                     className='flex items-center justify-between text-sm'
                   >
-                    <span>{`${line.productName} x ${line.quantity}`}</span>
+                    <span>{`${line.productName} x ${line.quantity} @ $${line.unitPrice.toFixed(2)}`}</span>
                     <Button
                       size='sm'
                       variant='ghost'
@@ -393,38 +472,80 @@ export function PurchaseOrders() {
       )}
 
       {canReceive && selectedOrder && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{`Receive ${selectedOrder.id}`}</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-3'>
-            {selectedOrder.lines.map((line: PurchaseOrderLine) => {
-              const remaining = line.quantity - line.receivedQuantity
-              if (remaining <= 0) return null
-              return (
-                <div key={line.id} className='grid gap-2 md:grid-cols-3'>
-                  <Label className='self-center'>{`${line.productName} (remaining: ${remaining})`}</Label>
-                  <Input
-                    type='number'
-                    min='0'
-                    max={remaining}
-                    value={receiptQty[line.id] ?? ''}
-                    onChange={(event) =>
-                      setReceiptQty((prev) => ({
-                        ...prev,
-                        [line.id]: event.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              )
-            })}
-            <div className='flex justify-end gap-2'>
+        <Dialog
+          open={isReceiveDialogOpen}
+          onOpenChange={handleReceiveDialogOpenChange}
+        >
+          <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>
+            <DialogHeader className='text-start'>
+              <DialogTitle>{`Receive ${selectedOrder.id}`}</DialogTitle>
+              <DialogDescription>
+                Enter received quantities for each line item.
+              </DialogDescription>
+            </DialogHeader>
+            <div className='space-y-3'>
+              {selectedOrder.lines.map((line: PurchaseOrderLine) => {
+                const remaining = line.quantityOrdered - line.quantityReceived
+                if (remaining <= 0) return null
+                return (
+                  <div key={line.id} className='grid gap-2 md:grid-cols-3'>
+                    <Label className='self-center'>{`${line.productName} (ordered: ${line.quantityOrdered}, received: ${line.quantityReceived}, remaining: ${remaining}, unit: $${line.unitPrice.toFixed(2)})`}</Label>
+                    <Input
+                      type='number'
+                      min='0'
+                      max={remaining}
+                      value={receiptQty[line.id] ?? ''}
+                      onChange={(event) =>
+                        setReceiptQty((prev) => ({
+                          ...prev,
+                          [line.id]: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                )
+              })}
+              <div className='rounded-md border p-3'>
+                <p className='mb-2 text-sm font-medium'>Communication Log</p>
+                {communicationsQuery.isLoading && (
+                  <p className='text-sm text-muted-foreground'>
+                    Loading communication history...
+                  </p>
+                )}
+                {communicationsQuery.data
+                  ?.filter(
+                    (entry) =>
+                      entry.documentType.toUpperCase() === 'PURCHASE_ORDER' &&
+                      entry.documentId === selectedOrder.id
+                  )
+                  .slice(0, 5)
+                  .map((entry) => (
+                    <div
+                      key={entry.id}
+                      className='flex items-center justify-between py-1 text-xs'
+                    >
+                      <span>{`${entry.status} to ${entry.recipient}`}</span>
+                      <span className='text-muted-foreground'>
+                        {new Date(entry.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                {communicationsQuery.data?.filter(
+                  (entry) =>
+                    entry.documentType.toUpperCase() === 'PURCHASE_ORDER' &&
+                    entry.documentId === selectedOrder.id
+                ).length === 0 && (
+                  <p className='text-sm text-muted-foreground'>
+                    No communications logged yet.
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter className='gap-2'>
               <Button
                 variant='outline'
                 onClick={() => {
-                  setSelectedOrderId(null)
-                  setReceiptQty({})
+                  handleReceiveDialogOpenChange(false)
                 }}
               >
                 Close
@@ -438,9 +559,9 @@ export function PurchaseOrders() {
               >
                 Receive Quantities
               </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       <GridToolbar

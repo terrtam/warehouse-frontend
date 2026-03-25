@@ -5,19 +5,16 @@ import { useTopicSubscription } from './use-topic-subscription'
 import { realtimeTopics } from '@/services/realtime/transport'
 import { wmsQueryKeys } from '@/services/wms'
 
-export const invalidateProductsTopicQueries = (queryClient: QueryClient) => {
+export const invalidateCategoriesTopicQueries = (queryClient: QueryClient) => {
   queryClient.invalidateQueries({ queryKey: wmsQueryKeys.categories })
   queryClient.invalidateQueries({ queryKey: wmsQueryKeys.products })
-  queryClient.invalidateQueries({ queryKey: wmsQueryKeys.inventory })
-  queryClient.invalidateQueries({ queryKey: wmsQueryKeys.salesOrders })
-  queryClient.invalidateQueries({ queryKey: wmsQueryKeys.purchaseOrders })
 }
 
-export const useProductsTopic = () => {
+export const useCategoriesTopic = () => {
   const queryClient = useQueryClient()
   const onMessage = useCallback(() => {
-    invalidateProductsTopicQueries(queryClient)
+    invalidateCategoriesTopicQueries(queryClient)
   }, [queryClient])
 
-  useTopicSubscription(realtimeTopics.products, onMessage)
+  useTopicSubscription(realtimeTopics.categories, onMessage)
 }

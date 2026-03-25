@@ -30,6 +30,7 @@ const route = getRouteApi('/_authenticated/inventory/')
 type AdjustmentState = {
   productId: string
   quantityDelta: string
+  unitPrice: string
   reason: string
   allowNegativeOverride: boolean
 }
@@ -37,6 +38,7 @@ type AdjustmentState = {
 const initialAdjustmentState: AdjustmentState = {
   productId: '',
   quantityDelta: '',
+  unitPrice: '',
   reason: '',
   allowNegativeOverride: false,
 }
@@ -77,6 +79,10 @@ export function Inventory() {
           quantityDelta: Number(adjustment.quantityDelta),
           reason: adjustment.reason,
           allowNegativeOverride: adjustment.allowNegativeOverride,
+          unitPrice:
+            adjustment.unitPrice.trim().length > 0
+              ? Number(adjustment.unitPrice)
+              : undefined,
         },
         getCurrentActor()
       ),
@@ -106,7 +112,9 @@ export function Inventory() {
     () => [
       { field: 'productName', headerName: 'Product' },
       { field: 'sku', headerName: 'SKU', maxWidth: 140 },
-      { field: 'currentQuantity', headerName: 'Current Qty', maxWidth: 140 },
+      { field: 'onHand', headerName: 'On Hand', maxWidth: 130 },
+      { field: 'reserved', headerName: 'Reserved', maxWidth: 130 },
+      { field: 'available', headerName: 'Available', maxWidth: 130 },
       { field: 'reorderThreshold', headerName: 'Reorder Threshold', maxWidth: 170 },
       {
         field: 'lowStock',
@@ -139,7 +147,7 @@ export function Inventory() {
           <CardHeader>
             <CardTitle>Create Adjustment</CardTitle>
           </CardHeader>
-          <CardContent className='grid gap-4 md:grid-cols-4'>
+          <CardContent className='grid gap-4 md:grid-cols-5'>
             <div className='space-y-2'>
               <Label>Product</Label>
               <Select
@@ -187,6 +195,23 @@ export function Inventory() {
               />
             </div>
             <div className='space-y-2'>
+              <Label htmlFor='adjustment-unit-price'>Unit Price</Label>
+              <Input
+                id='adjustment-unit-price'
+                type='number'
+                min='0'
+                step='0.01'
+                value={adjustment.unitPrice}
+                onChange={(event) =>
+                  setAdjustment((prev) => ({
+                    ...prev,
+                    unitPrice: event.target.value,
+                  }))
+                }
+                placeholder='Optional'
+              />
+            </div>
+            <div className='space-y-2'>
               <Label className='invisible'>Override</Label>
               <div className='flex h-10 items-center gap-2 rounded-md border px-3'>
                 <Checkbox
@@ -205,7 +230,7 @@ export function Inventory() {
                 </Label>
               </div>
             </div>
-            <div className='md:col-span-4 flex justify-end'>
+            <div className='md:col-span-5 flex justify-end'>
               <Button
                 onClick={() => adjustMutation.mutate()}
                 disabled={adjustmentDisabled}

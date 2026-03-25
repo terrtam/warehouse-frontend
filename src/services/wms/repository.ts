@@ -1,17 +1,23 @@
 import type {
   Category,
+  CommunicationLog,
   Customer,
+  EntityAuditLog,
   InventoryRecord,
   InventoryTransaction,
   LoginInput,
   LoginResponse,
+  LowStockTrendReportRow,
   Product,
+  PurchaseCostTrackingReportRow,
   PurchaseOrder,
-  PurchaseOrderLine,
   Role,
+  SalesByCategoryReportRow,
+  SalesByProductReportRow,
   SalesOrder,
-  SalesOrderLine,
   Supplier,
+  SupplierPerformanceReportRow,
+  VelocityReportRow,
 } from '@/domain/wms/types'
 
 export type Actor = {
@@ -19,13 +25,15 @@ export type Actor = {
   role: Role
 }
 
-export type CategoryInput = Pick<Category, 'name' | 'status'>
+export type CategoryInput = Pick<Category, 'name' | 'description' | 'status'>
 
 export type ProductInput = Pick<
   Product,
   | 'name'
   | 'sku'
   | 'categoryId'
+  | 'categoryName'
+  | 'description'
   | 'unit'
   | 'defaultSalePrice'
   | 'costPrice'
@@ -35,7 +43,7 @@ export type ProductInput = Pick<
 
 export type CustomerInput = Pick<
   Customer,
-  'name' | 'email' | 'phone' | 'status'
+  'name' | 'email' | 'phone' | 'address' | 'status' | 'notes'
 >
 
 export type CustomerListInput = {
@@ -46,17 +54,19 @@ export type CustomerListInput = {
 
 export type SupplierInput = Pick<
   Supplier,
-  'name' | 'email' | 'phone' | 'address' | 'status'
+  'name' | 'email' | 'phone' | 'address' | 'status' | 'notes'
 >
 
-export type SalesOrderLineInput = Pick<SalesOrderLine, 'productId' | 'quantity'> & {
+export type SalesOrderLineInput = {
+  productId: string
+  supplierId?: string
+  quantity: number
   unitPrice?: number
 }
 
-export type PurchaseOrderLineInput = Pick<
-  PurchaseOrderLine,
-  'productId' | 'quantity'
-> & {
+export type PurchaseOrderLineInput = {
+  productId: string
+  quantity: number
   unitPrice?: number
 }
 
@@ -75,6 +85,7 @@ export type AdjustmentInput = {
   quantityDelta: number
   reason: string
   allowNegativeOverride?: boolean
+  unitPrice?: number
 }
 
 export type ShipLineInput = {
@@ -85,6 +96,21 @@ export type ShipLineInput = {
 export type ReceiveLineInput = {
   lineId: string
   quantity: number
+}
+
+export type CommunicationListInput = {
+  documentType?: string
+  channel?: string
+  status?: string
+}
+
+export type AuditLogListInput = {
+  entityType?: string
+}
+
+export type ReportDateRangeInput = {
+  from?: string
+  to?: string
 }
 
 export interface AuthRepository {
@@ -111,6 +137,7 @@ export interface ProductRepository {
     actor: Actor,
     expectedVersion?: number
   ): Promise<Product>
+  delete(id: string, actor: Actor, expectedVersion?: number): Promise<void>
 }
 
 export interface CustomerRepository {
@@ -170,6 +197,27 @@ export interface InventoryTransactionRepository {
   list(): Promise<InventoryTransaction[]>
 }
 
+export interface CommunicationRepository {
+  list(input?: CommunicationListInput): Promise<CommunicationLog[]>
+}
+
+export interface AuditLogRepository {
+  list(input?: AuditLogListInput): Promise<EntityAuditLog[]>
+}
+
+export interface ReportsRepository {
+  salesByProduct(input?: ReportDateRangeInput): Promise<SalesByProductReportRow[]>
+  salesByCategory(input?: ReportDateRangeInput): Promise<SalesByCategoryReportRow[]>
+  purchaseCostTracking(
+    input?: ReportDateRangeInput
+  ): Promise<PurchaseCostTrackingReportRow[]>
+  supplierPerformance(
+    input?: ReportDateRangeInput
+  ): Promise<SupplierPerformanceReportRow[]>
+  velocity(input?: ReportDateRangeInput): Promise<VelocityReportRow[]>
+  lowStockTrends(): Promise<LowStockTrendReportRow[]>
+}
+
 export interface WmsRepository {
   auth: AuthRepository
   products: ProductRepository
@@ -180,4 +228,7 @@ export interface WmsRepository {
   purchaseOrders: PurchaseOrderRepository
   inventory: InventoryRepository
   inventoryTransactions: InventoryTransactionRepository
+  communications: CommunicationRepository
+  auditLog: AuditLogRepository
+  reports: ReportsRepository
 }

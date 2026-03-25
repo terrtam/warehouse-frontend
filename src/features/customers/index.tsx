@@ -40,7 +40,9 @@ type CustomerFormState = {
   name: string
   email: string
   phone: string
+  address: string
   status: RecordStatus
+  notes: string
 }
 
 type CustomerFormErrors = Partial<Record<keyof CustomerFormState, string>>
@@ -49,7 +51,9 @@ const initialFormState: CustomerFormState = {
   name: '',
   email: '',
   phone: '',
+  address: '',
   status: 'active',
+  notes: '',
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -129,7 +133,9 @@ export function Customers() {
       name: row.name,
       email: row.email,
       phone: row.phone,
+      address: row.address,
       status: row.status,
+      notes: row.notes,
     })
     setFormErrors({})
     setFormOpen(true)
@@ -156,7 +162,9 @@ export function Customers() {
       name: form.name.trim(),
       email: form.email.trim(),
       phone: form.phone.trim(),
+      address: form.address.trim(),
       status: form.status,
+      notes: form.notes.trim(),
     }
 
     if (!editingCustomer) {
@@ -178,7 +186,9 @@ export function Customers() {
       return (
         row.name.toLowerCase().includes(lowered) ||
         row.email.toLowerCase().includes(lowered) ||
-        row.phone.toLowerCase().includes(lowered)
+        row.phone.toLowerCase().includes(lowered) ||
+        row.address.toLowerCase().includes(lowered) ||
+        row.notes.toLowerCase().includes(lowered)
       )
     })
     return sortRows(filtered, sortBy, sortDir)
@@ -189,6 +199,8 @@ export function Customers() {
       { field: 'name', headerName: 'Name' },
       { field: 'email', headerName: 'Email' },
       { field: 'phone', headerName: 'Phone', minWidth: 160 },
+      { field: 'address', headerName: 'Address', minWidth: 220 },
+      { field: 'notes', headerName: 'Notes', minWidth: 220 },
       { field: 'status', headerName: 'Status', maxWidth: 120 },
       {
         field: 'updatedAt',
@@ -216,14 +228,16 @@ export function Customers() {
                 onClick={() => {
                   updateMutation.mutate({
                     id: row.id,
-                    customer: {
-                      name: row.name,
-                      email: row.email,
-                      phone: row.phone,
-                      status: row.status === 'active' ? 'inactive' : 'active',
-                    },
-                    version: row.version,
-                  })
+                      customer: {
+                        name: row.name,
+                        email: row.email,
+                        phone: row.phone,
+                        address: row.address,
+                        status: row.status === 'active' ? 'inactive' : 'active',
+                        notes: row.notes,
+                      },
+                      version: row.version,
+                    })
                 }}
               >
                 {row.status === 'active' ? 'Deactivate' : 'Activate'}
@@ -278,7 +292,7 @@ export function Customers() {
       <GridToolbar
         query={q}
         onQueryChange={setQuery}
-        placeholder='Filter customers by name, email, or phone...'
+        placeholder='Filter customers by name, email, phone, address, or notes...'
       />
 
       <WmsGrid<Customer>
@@ -356,6 +370,28 @@ export function Customers() {
               {formErrors.phone && (
                 <p className='text-xs text-destructive'>{formErrors.phone}</p>
               )}
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='customer-address'>Address</Label>
+              <Input
+                id='customer-address'
+                value={form.address}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, address: event.target.value }))
+                }}
+              />
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='customer-notes'>Notes</Label>
+              <Input
+                id='customer-notes'
+                value={form.notes}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, notes: event.target.value }))
+                }}
+              />
             </div>
 
             <div className='space-y-2'>

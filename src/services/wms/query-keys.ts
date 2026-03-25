@@ -7,5 +7,14 @@ export const wmsQueryKeys = {
   purchaseOrders: ['wms', 'purchaseOrders'] as const,
   inventory: ['wms', 'inventory'] as const,
   inventoryTransactions: ['wms', 'inventoryTransactions'] as const,
+  communications: ['wms', 'communications'] as const,
+  auditLog: ['wms', 'auditLog'] as const,
+  reports: {
+    salesByProduct: ['wms', 'reports', 'salesByProduct'] as const,
+    salesByCategory: ['wms', 'reports', 'salesByCategory'] as const,
+    purchaseCostTracking: ['wms', 'reports', 'purchaseCostTracking'] as const,
+    supplierPerformance: ['wms', 'reports', 'supplierPerformance'] as const,
+    velocity: ['wms', 'reports', 'velocity'] as const,
+    lowStockTrends: ['wms', 'reports', 'lowStockTrends'] as const,
+  },
 } as const
-

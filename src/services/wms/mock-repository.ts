@@ -1,7 +1,9 @@
 import type {
   AuthClaims,
   Category,
+  CommunicationLog,
   Customer,
+  EntityAuditLog,
   InventoryRecord,
   InventoryTransaction,
   Product,
@@ -12,24 +14,19 @@ import type {
   SalesOrderLine,
   Supplier,
 } from '@/domain/wms/types'
-import { canRole } from '@/lib/auth/permissions'
 import { mockRealtimeTransport } from '@/services/realtime/mock-transport'
 import { realtimeTopics } from '@/services/realtime/transport'
 import { WmsError } from './errors'
 import type {
   Actor,
-  CategoryInput,
+  AdjustmentInput,
   CreatePurchaseOrderInput,
   CreateSalesOrderInput,
-  CustomerInput,
-  ProductInput,
-  PurchaseOrderLineInput,
+  CustomerListInput,
   ReceiveLineInput,
-  SalesOrderLineInput,
+  ReportDateRangeInput,
   ShipLineInput,
-  SupplierInput,
   WmsRepository,
-  AdjustmentInput,
 } from './repository'
 
 type DbState = {
@@ -40,17 +37,11 @@ type DbState = {
   salesOrders: SalesOrder[]
   purchaseOrders: PurchaseOrder[]
   inventoryTransactions: InventoryTransaction[]
-}
-
-type MutableRecord = {
-  id: string
-  version: number
-  updatedAt: string
+  communications: CommunicationLog[]
+  auditLog: EntityAuditLog[]
 }
 
 const nowIso = () => new Date().toISOString()
-
-const deepClone = <T>(value: T): T => structuredClone(value)
 
 const toBase64Url = (value: string) =>
   btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -60,12 +51,11 @@ const createMockJwt = (claims: AuthClaims) => {
   const payload = toBase64Url(
     JSON.stringify({
       sub: claims.username,
-      role: claims.roles[0],
+      roles: claims.roles,
       exp: Math.floor(claims.exp / 1000),
     })
   )
-  const signature = toBase64Url('mock-signature')
-  return `${header}.${payload}.${signature}`
+  return `${header}.${payload}.${toBase64Url('mock-signature')}`
 }
 
 const nextId = (prefix: string) =>
@@ -73,23 +63,17 @@ const nextId = (prefix: string) =>
     .toString(36)
     .slice(-4)}`
 
-const touch = <T extends MutableRecord>(record: T) => {
-  record.version += 1
-  record.updatedAt = nowIso()
+const deepClone = <T>(value: T): T => structuredClone(value)
+
+const touch = <T extends { version: number; updatedAt: string }>(value: T) => {
+  value.version += 1
+  value.updatedAt = nowIso()
 }
 
 const findById = <T extends { id: string }>(rows: T[], id: string, label: string) => {
   const found = rows.find((row) => row.id === id)
-  if (!found) {
-    throw new WmsError('NOT_FOUND', `${label} not found`)
-  }
+  if (!found) throw new WmsError('NOT_FOUND', `${label} not found`)
   return found
-}
-
-const assertPositiveInteger = (value: number, label: string) => {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new WmsError('VALIDATION', `${label} must be a positive integer`)
-  }
 }
 
 const assertManager = (actor: Actor, action: string) => {
@@ -98,59 +82,149 @@ const assertManager = (actor: Actor, action: string) => {
   }
 }
 
-const assertPermission = (actor: Actor, action: Parameters<typeof canRole>[1]) => {
-  if (!canRole(actor.role, action)) {
-    throw new WmsError('FORBIDDEN', 'You do not have permission for this action')
+const assertVersion = (expected: number | undefined, current: number) => {
+  if (expected === undefined) return
+  if (expected !== current) {
+    throw new WmsError('CONFLICT', 'Record has been changed by another user')
   }
 }
 
-const assertVersion = (expectedVersion: number | undefined, currentVersion: number) => {
-  if (expectedVersion === undefined) return
-  if (expectedVersion !== currentVersion) {
-    throw new WmsError(
-      'CONFLICT',
-      'Record has been changed by another user',
-      'Version mismatch'
-    )
-  }
-}
-
-const getInventoryTotals = (state: DbState) => {
-  const totals = new Map<string, number>()
-  state.inventoryTransactions.forEach((txn) => {
-    const current = totals.get(txn.productId) ?? 0
-    const delta =
-      txn.type === 'IN' ? txn.quantity : txn.type === 'OUT' ? -txn.quantity : txn.quantity
-    totals.set(txn.productId, current + delta)
+const publish = (topic: keyof typeof realtimeTopics, eventType: string, entityId: string) => {
+  mockRealtimeTransport.publish(realtimeTopics[topic], {
+    eventType,
+    entityId,
+    occurredAt: nowIso(),
   })
-  return totals
 }
 
-const buildInventory = (state: DbState): InventoryRecord[] => {
-  const totals = getInventoryTotals(state)
+const state: DbState = (() => {
+  const createdAt = nowIso()
+  return {
+    categories: [
+      {
+        id: 'cat-electronics',
+        name: 'Electronics',
+        description: 'Devices and accessories',
+        status: 'active',
+        version: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+    products: [
+      {
+        id: 'prd-scanner',
+        name: 'Wireless Scanner',
+        sku: 'WH-1001',
+        categoryId: 'cat-electronics',
+        categoryName: 'Electronics',
+        description: 'Warehouse scanner',
+        unit: 'pcs',
+        defaultSalePrice: 129.99,
+        costPrice: 80,
+        reorderThreshold: 20,
+        status: 'active',
+        version: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+    customers: [
+      {
+        id: 'cus-acme',
+        name: 'ACME Retail',
+        email: 'buyer@acme.example',
+        phone: '+1 555 1000',
+        address: '100 Main St',
+        status: 'active',
+        notes: '',
+        version: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+    suppliers: [
+      {
+        id: 'sup-apex',
+        name: 'Apex Supply Co.',
+        email: 'sales@apex.example',
+        phone: '+1 555 3000',
+        address: '9 Industrial Rd',
+        status: 'active',
+        notes: '',
+        version: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+    salesOrders: [],
+    purchaseOrders: [],
+    inventoryTransactions: [
+      {
+        id: nextId('txn'),
+        productId: 'prd-scanner',
+        productName: 'Wireless Scanner',
+        sku: 'WH-1001',
+        quantity: 60,
+        type: 'IN',
+        referenceType: 'PO',
+        referenceId: 'seed-po',
+        performedBy: 'seed',
+        performedByUsername: 'seed',
+        version: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+    communications: [],
+    auditLog: [],
+  }
+})()
+
+const onHandByProduct = () => {
+  const map = new Map<string, number>()
+  state.inventoryTransactions.forEach((txn) => {
+    const current = map.get(txn.productId) ?? 0
+    const delta = txn.type === 'OUT' ? -txn.quantity : txn.quantity
+    map.set(txn.productId, current + delta)
+  })
+  return map
+}
+
+const reservedByProduct = () => {
+  const map = new Map<string, number>()
+  state.salesOrders
+    .filter((order) => order.status === 'processing' || order.status === 'partially_shipped')
+    .forEach((order) => {
+      order.lines.forEach((line) => {
+        map.set(line.productId, (map.get(line.productId) ?? 0) + line.quantityReserved)
+      })
+    })
+  return map
+}
+
+const buildInventory = (): InventoryRecord[] => {
+  const onHand = onHandByProduct()
+  const reserved = reservedByProduct()
   return state.products.map((product) => {
-    const currentQuantity = totals.get(product.id) ?? 0
+    const onHandQty = onHand.get(product.id) ?? 0
+    const reservedQty = reserved.get(product.id) ?? 0
+    const available = onHandQty - reservedQty
     return {
       productId: product.id,
       productName: product.name,
       sku: product.sku,
-      currentQuantity,
+      onHand: onHandQty,
+      reserved: reservedQty,
+      available,
       reorderThreshold: product.reorderThreshold,
-      lowStock: currentQuantity <= product.reorderThreshold,
+      lowStock: available <= product.reorderThreshold,
+      currentQuantity: onHandQty,
     }
   })
 }
 
-const inventoryForProduct = (state: DbState, productId: string) => {
-  const inventory = buildInventory(state).find((item) => item.productId === productId)
-  if (!inventory) {
-    throw new WmsError('NOT_FOUND', 'Inventory product not found')
-  }
-  return inventory
-}
-
-const addInventoryTransaction = (
-  state: DbState,
+const addTxn = (
   payload: Omit<InventoryTransaction, 'id' | 'version' | 'createdAt' | 'updatedAt'>
 ) => {
   const timestamp = nowIso()
@@ -163,271 +237,25 @@ const addInventoryTransaction = (
   })
 }
 
-const validateSkuUnique = (state: DbState, sku: string, excludeId?: string) => {
-  const taken = state.products.some(
-    (product) => product.sku.toLowerCase() === sku.toLowerCase() && product.id !== excludeId
-  )
-  if (taken) {
-    throw new WmsError('VALIDATION', 'SKU must be unique')
-  }
-}
-
-const validateCategory = (state: DbState, categoryId: string) => {
-  const category = findById(state.categories, categoryId, 'Category')
-  if (category.status !== 'active') {
-    throw new WmsError('VALIDATION', 'Category must be active')
-  }
-  return category
-}
-
-const validateSalesOrderLines = (state: DbState, lines: SalesOrderLineInput[]) => {
-  if (lines.length === 0) {
-    throw new WmsError('VALIDATION', 'Sales order requires at least one line')
-  }
-
-  return lines.map((line): SalesOrderLine => {
-    assertPositiveInteger(line.quantity, 'Line quantity')
-    const product = findById(state.products, line.productId, 'Product')
-    if (product.status !== 'active') {
-      throw new WmsError(
-        'VALIDATION',
-        `Inactive product "${product.name}" cannot be added to new orders`
-      )
-    }
-
-    return {
-      id: nextId('sol'),
-      productId: product.id,
-      productName: product.name,
-      quantity: line.quantity,
-      shippedQuantity: 0,
-      unitPrice: line.unitPrice ?? product.defaultSalePrice,
-    }
+const addCommunication = (
+  documentType: string,
+  documentId: string,
+  recipient: string,
+  details: string,
+  senderUsername: string
+) => {
+  state.communications.unshift({
+    id: nextId('comm'),
+    documentType,
+    documentId,
+    recipient,
+    channel: 'EMAIL',
+    status: 'SENT',
+    senderUsername,
+    details,
+    createdAt: nowIso(),
   })
-}
-
-const validatePurchaseOrderLines = (state: DbState, lines: PurchaseOrderLineInput[]) => {
-  if (lines.length === 0) {
-    throw new WmsError('VALIDATION', 'Purchase order requires at least one line')
-  }
-
-  return lines.map((line): PurchaseOrderLine => {
-    assertPositiveInteger(line.quantity, 'Line quantity')
-    const product = findById(state.products, line.productId, 'Product')
-    if (product.status !== 'active') {
-      throw new WmsError(
-        'VALIDATION',
-        `Inactive product "${product.name}" cannot be added to new orders`
-      )
-    }
-
-    return {
-      id: nextId('pol'),
-      productId: product.id,
-      productName: product.name,
-      quantity: line.quantity,
-      receivedQuantity: 0,
-      unitPrice: line.unitPrice ?? product.costPrice,
-    }
-  })
-}
-
-const seed = (): DbState => {
-  const createdAt = nowIso()
-  const categories: Category[] = [
-    {
-      id: 'cat-electronics',
-      name: 'Electronics',
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'cat-household',
-      name: 'Household',
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'cat-seasonal',
-      name: 'Seasonal',
-      status: 'inactive',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  ]
-
-  const products: Product[] = [
-    {
-      id: 'prd-wireless-scanner',
-      name: 'Wireless Scanner',
-      sku: 'WH-1001',
-      categoryId: 'cat-electronics',
-      categoryName: 'Electronics',
-      unit: 'pcs',
-      defaultSalePrice: 129.99,
-      costPrice: 80,
-      reorderThreshold: 20,
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'prd-label-printer',
-      name: 'Label Printer',
-      sku: 'WH-1002',
-      categoryId: 'cat-electronics',
-      categoryName: 'Electronics',
-      unit: 'pcs',
-      defaultSalePrice: 289,
-      costPrice: 200,
-      reorderThreshold: 10,
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'prd-shipping-box',
-      name: 'Shipping Box Large',
-      sku: 'WH-2001',
-      categoryId: 'cat-household',
-      categoryName: 'Household',
-      unit: 'box',
-      defaultSalePrice: 4.5,
-      costPrice: 2.2,
-      reorderThreshold: 100,
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  ]
-
-  const customers: Customer[] = [
-    {
-      id: 'cus-acme',
-      name: 'ACME Retail',
-      email: 'buyer@acme.example',
-      phone: '+1 555 1000',
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'cus-zenith',
-      name: 'Zenith Stores',
-      email: 'ops@zenith.example',
-      phone: '+1 555 2000',
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  ]
-
-  const suppliers: Supplier[] = [
-    {
-      id: 'sup-apex',
-      name: 'Apex Supply Co.',
-      email: 'sales@apex.example',
-      phone: '+1 555 3000',
-      address: '9 Industrial Rd, Denver, CO',
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'sup-north',
-      name: 'Northline Distribution',
-      email: 'contact@northline.example',
-      phone: '+1 555 4000',
-      address: '200 Logistics Pkwy, Columbus, OH',
-      status: 'active',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  ]
-
-  const inventoryTransactions: InventoryTransaction[] = [
-    {
-      id: nextId('txn'),
-      productId: 'prd-wireless-scanner',
-      productName: 'Wireless Scanner',
-      sku: 'WH-1001',
-      quantity: 60,
-      type: 'IN',
-      referenceType: 'PO',
-      referenceId: 'seed-po-1',
-      performedBy: 'seed',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: nextId('txn'),
-      productId: 'prd-label-printer',
-      productName: 'Label Printer',
-      sku: 'WH-1002',
-      quantity: 30,
-      type: 'IN',
-      referenceType: 'PO',
-      referenceId: 'seed-po-2',
-      performedBy: 'seed',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: nextId('txn'),
-      productId: 'prd-shipping-box',
-      productName: 'Shipping Box Large',
-      sku: 'WH-2001',
-      quantity: 250,
-      type: 'IN',
-      referenceType: 'PO',
-      referenceId: 'seed-po-3',
-      performedBy: 'seed',
-      version: 1,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  ]
-
-  const salesOrders: SalesOrder[] = []
-  const purchaseOrders: PurchaseOrder[] = []
-
-  return {
-    categories,
-    products,
-    customers,
-    suppliers,
-    salesOrders,
-    purchaseOrders,
-    inventoryTransactions,
-  }
-}
-
-const state: DbState = seed()
-
-const publishProducts = (type: string, id: string) => {
-  mockRealtimeTransport.publish(realtimeTopics.products, { type, id, at: nowIso() })
-}
-
-const publishInventory = (type: string, id: string) => {
-  mockRealtimeTransport.publish(realtimeTopics.inventory, { type, id, at: nowIso() })
-}
-
-const publishOrders = (type: string, id: string) => {
-  mockRealtimeTransport.publish(realtimeTopics.orders, { type, id, at: nowIso() })
+  publish('communications', 'COMMUNICATION_LOGGED', documentId)
 }
 
 const authUsers: Record<string, { password: string; role: Role }> = {
@@ -442,36 +270,32 @@ export const mockWmsRepository: WmsRepository = {
       if (!user || user.password !== input.password) {
         throw new WmsError('VALIDATION', 'Invalid username or password')
       }
-
       const claims: AuthClaims = {
         username: input.username,
         roles: [user.role],
         exp: Date.now() + 1000 * 60 * 60 * 8,
       }
-
-      return {
-        token: createMockJwt(claims),
-        claims,
-      }
+      return { token: createMockJwt(claims), claims }
     },
   },
   categories: {
     async list() {
       return deepClone(state.categories)
     },
-    async create(input: CategoryInput, actor: Actor) {
+    async create(input, actor) {
       assertManager(actor, 'Creating categories')
       const timestamp = nowIso()
       const category: Category = {
         id: nextId('cat'),
         name: input.name.trim(),
+        description: input.description.trim(),
         status: input.status,
         version: 1,
         createdAt: timestamp,
         updatedAt: timestamp,
       }
       state.categories.unshift(category)
-      publishProducts('category.created', category.id)
+      publish('categories', 'CATEGORY_CREATED', category.id)
       return deepClone(category)
     },
     async update(id, input, actor, expectedVersion) {
@@ -479,9 +303,10 @@ export const mockWmsRepository: WmsRepository = {
       const category = findById(state.categories, id, 'Category')
       assertVersion(expectedVersion, category.version)
       category.name = input.name.trim()
+      category.description = input.description.trim()
       category.status = input.status
       touch(category)
-      publishProducts('category.updated', category.id)
+      publish('categories', 'CATEGORY_UPDATED', category.id)
       return deepClone(category)
     },
   },
@@ -489,17 +314,17 @@ export const mockWmsRepository: WmsRepository = {
     async list() {
       return deepClone(state.products)
     },
-    async create(input: ProductInput, actor: Actor) {
+    async create(input, actor) {
       assertManager(actor, 'Creating products')
-      validateSkuUnique(state, input.sku)
-      const category = validateCategory(state, input.categoryId)
       const timestamp = nowIso()
+      const category = findById(state.categories, input.categoryId, 'Category')
       const product: Product = {
         id: nextId('prd'),
         name: input.name.trim(),
         sku: input.sku.trim(),
         categoryId: category.id,
         categoryName: category.name,
+        description: input.description?.trim() ?? '',
         unit: input.unit.trim(),
         defaultSalePrice: input.defaultSalePrice,
         costPrice: input.costPrice,
@@ -510,36 +335,46 @@ export const mockWmsRepository: WmsRepository = {
         updatedAt: timestamp,
       }
       state.products.unshift(product)
-      publishProducts('product.created', product.id)
-      publishInventory('inventory.product.created', product.id)
+      publish('products', 'PRODUCT_CREATED', product.id)
       return deepClone(product)
     },
     async update(id, input, actor, expectedVersion) {
       assertManager(actor, 'Updating products')
       const product = findById(state.products, id, 'Product')
       assertVersion(expectedVersion, product.version)
-      validateSkuUnique(state, input.sku, id)
-      const category = validateCategory(state, input.categoryId)
+      const category = findById(state.categories, input.categoryId, 'Category')
       product.name = input.name.trim()
       product.sku = input.sku.trim()
       product.categoryId = category.id
       product.categoryName = category.name
+      product.description = input.description?.trim() ?? ''
       product.unit = input.unit.trim()
       product.defaultSalePrice = input.defaultSalePrice
       product.costPrice = input.costPrice
       product.reorderThreshold = input.reorderThreshold
       product.status = input.status
       touch(product)
-      publishProducts('product.updated', product.id)
-      publishInventory('inventory.product.updated', product.id)
+      publish('products', 'PRODUCT_UPDATED', product.id)
       return deepClone(product)
+    },
+    async delete(id, actor, expectedVersion) {
+      assertManager(actor, 'Deleting products')
+      const product = findById(state.products, id, 'Product')
+      assertVersion(expectedVersion, product.version)
+      state.products = state.products.filter((row) => row.id !== id)
+      publish('products', 'PRODUCT_DELETED', id)
     },
   },
   customers: {
-    async list() {
-      return deepClone(state.customers)
+    async list(input?: CustomerListInput) {
+      if (!input?.updatedAfter) return deepClone(state.customers)
+      const checkpoint = Date.parse(input.updatedAfter)
+      if (!Number.isFinite(checkpoint)) return deepClone(state.customers)
+      return deepClone(
+        state.customers.filter((row) => Date.parse(row.updatedAt) > checkpoint)
+      )
     },
-    async create(input: CustomerInput, actor: Actor) {
+    async create(input, actor) {
       assertManager(actor, 'Creating customers')
       const timestamp = nowIso()
       const customer: Customer = {
@@ -547,12 +382,15 @@ export const mockWmsRepository: WmsRepository = {
         name: input.name.trim(),
         email: input.email.trim(),
         phone: input.phone.trim(),
+        address: input.address.trim(),
         status: input.status,
+        notes: input.notes.trim(),
         version: 1,
         createdAt: timestamp,
         updatedAt: timestamp,
       }
       state.customers.unshift(customer)
+      publish('customers', 'CUSTOMER_CREATED', customer.id)
       return deepClone(customer)
     },
     async update(id, input, actor, expectedVersion) {
@@ -562,8 +400,11 @@ export const mockWmsRepository: WmsRepository = {
       customer.name = input.name.trim()
       customer.email = input.email.trim()
       customer.phone = input.phone.trim()
+      customer.address = input.address.trim()
       customer.status = input.status
+      customer.notes = input.notes.trim()
       touch(customer)
+      publish('customers', 'CUSTOMER_UPDATED', customer.id)
       return deepClone(customer)
     },
   },
@@ -571,7 +412,7 @@ export const mockWmsRepository: WmsRepository = {
     async list() {
       return deepClone(state.suppliers)
     },
-    async create(input: SupplierInput, actor: Actor) {
+    async create(input, actor) {
       assertManager(actor, 'Creating suppliers')
       const timestamp = nowIso()
       const supplier: Supplier = {
@@ -581,11 +422,13 @@ export const mockWmsRepository: WmsRepository = {
         phone: input.phone.trim(),
         address: input.address.trim(),
         status: input.status,
+        notes: input.notes.trim(),
         version: 1,
         createdAt: timestamp,
         updatedAt: timestamp,
       }
       state.suppliers.unshift(supplier)
+      publish('suppliers', 'SUPPLIER_CREATED', supplier.id)
       return deepClone(supplier)
     },
     async update(id, input, actor, expectedVersion) {
@@ -597,7 +440,9 @@ export const mockWmsRepository: WmsRepository = {
       supplier.phone = input.phone.trim()
       supplier.address = input.address.trim()
       supplier.status = input.status
+      supplier.notes = input.notes.trim()
       touch(supplier)
+      publish('suppliers', 'SUPPLIER_UPDATED', supplier.id)
       return deepClone(supplier)
     },
   },
@@ -606,14 +451,30 @@ export const mockWmsRepository: WmsRepository = {
       return deepClone(state.salesOrders)
     },
     async create(input: CreateSalesOrderInput, actor: Actor) {
-      assertPermission(actor, 'sales-orders:create')
+      assertManager(actor, 'Creating sales orders')
       const customer = findById(state.customers, input.customerId, 'Customer')
-      const lines = validateSalesOrderLines(state, input.lines)
       const timestamp = nowIso()
+      const lines: SalesOrderLine[] = input.lines.map((line) => {
+        const product = findById(state.products, line.productId, 'Product')
+        const unitPrice = line.unitPrice ?? product.defaultSalePrice
+        return {
+          id: nextId('sol'),
+          productId: product.id,
+          productName: product.name,
+          quantityOrdered: line.quantity,
+          quantityReserved: 0,
+          quantityShipped: 0,
+          unitPrice,
+          lineTotal: unitPrice * line.quantity,
+          quantity: line.quantity,
+          shippedQuantity: 0,
+        }
+      })
       const order: SalesOrder = {
         id: nextId('so'),
         customerId: customer.id,
         customerName: customer.name,
+        date: timestamp.slice(0, 10),
         status: 'draft',
         lines,
         version: 1,
@@ -621,65 +482,34 @@ export const mockWmsRepository: WmsRepository = {
         updatedAt: timestamp,
       }
       state.salesOrders.unshift(order)
-      publishOrders('sales-order.created', order.id)
+      publish('orders', 'SALES_ORDER_CREATED', order.id)
       return deepClone(order)
     },
-    async confirm(id, actor, expectedVersion) {
-      assertPermission(actor, 'sales-orders:confirm')
+    async confirm(id, _actor, expectedVersion) {
       const order = findById(state.salesOrders, id, 'Sales order')
       assertVersion(expectedVersion, order.version)
-      if (order.status !== 'draft') {
-        throw new WmsError('VALIDATION', 'Only draft sales orders can be confirmed')
-      }
-      order.status = 'confirmed'
-      touch(order)
-      publishOrders('sales-order.confirmed', order.id)
-      return deepClone(order)
-    },
-    async ship(id, lineShipments: ShipLineInput[], actor, expectedVersion) {
-      assertPermission(actor, 'sales-orders:ship')
-      const order = findById(state.salesOrders, id, 'Sales order')
-      assertVersion(expectedVersion, order.version)
-      if (order.status === 'draft') {
-        throw new WmsError('VALIDATION', 'Orders must be confirmed before shipping')
-      }
-      if (order.status === 'cancelled') {
-        throw new WmsError('VALIDATION', 'Cancelled orders cannot modify inventory')
-      }
-      if (order.status === 'shipped') {
-        throw new WmsError('VALIDATION', 'Order is already shipped')
-      }
-      if (lineShipments.length === 0) {
-        throw new WmsError('VALIDATION', 'Provide at least one line shipment')
-      }
-
-      lineShipments.forEach((shipment) => {
-        assertPositiveInteger(shipment.quantity, 'Shipment quantity')
-        const line = findById(order.lines, shipment.lineId, 'Sales order line')
-        const remaining = line.quantity - line.shippedQuantity
-        if (shipment.quantity > remaining) {
-          throw new WmsError(
-            'VALIDATION',
-            `Cannot ship more than remaining quantity for ${line.productName}`
-          )
-        }
-
-        const inventory = inventoryForProduct(state, line.productId)
-        if (inventory.currentQuantity < shipment.quantity) {
-          throw new WmsError(
-            'INSUFFICIENT_INVENTORY',
-            'Insufficient inventory for shipment',
-            `${line.productName}: requested ${shipment.quantity}, available ${inventory.currentQuantity}`
-          )
-        }
+      const inventory = buildInventory()
+      order.lines.forEach((line) => {
+        const available = inventory.find((row) => row.productId === line.productId)?.available ?? 0
+        line.quantityReserved = Math.min(available, line.quantityOrdered - line.quantityShipped)
       })
-
-      lineShipments.forEach((shipment) => {
+      order.status = 'processing'
+      touch(order)
+      const recipient = findById(state.customers, order.customerId, 'Customer').email
+      addCommunication('SALES_ORDER', order.id, recipient, 'Sales order confirmed', 'mock')
+      publish('orders', 'SALES_ORDER_CONFIRMED', order.id)
+      return deepClone(order)
+    },
+    async ship(id, lines: ShipLineInput[], actor: Actor, expectedVersion) {
+      const order = findById(state.salesOrders, id, 'Sales order')
+      assertVersion(expectedVersion, order.version)
+      lines.forEach((shipment) => {
         const line = findById(order.lines, shipment.lineId, 'Sales order line')
-        line.shippedQuantity += shipment.quantity
+        line.quantityReserved = Math.max(0, line.quantityReserved - shipment.quantity)
+        line.quantityShipped += shipment.quantity
+        line.shippedQuantity = line.quantityShipped
         const product = findById(state.products, line.productId, 'Product')
-
-        addInventoryTransaction(state, {
+        addTxn({
           productId: line.productId,
           productName: line.productName,
           sku: product.sku,
@@ -687,32 +517,29 @@ export const mockWmsRepository: WmsRepository = {
           type: 'OUT',
           referenceType: 'SO',
           referenceId: order.id,
+          referenceLineId: line.id,
+          unitPrice: line.unitPrice,
           performedBy: actor.username,
+          performedByUsername: actor.username,
         })
       })
-
-      const allShipped = order.lines.every((line) => line.shippedQuantity >= line.quantity)
-      order.status = allShipped ? 'shipped' : 'partially_shipped'
+      order.status = order.lines.every((line) => line.quantityShipped >= line.quantityOrdered)
+        ? 'shipped'
+        : 'partially_shipped'
       touch(order)
-      publishOrders('sales-order.shipped', order.id)
-      publishInventory('inventory.shipped', order.id)
+      publish('orders', 'SALES_ORDER_SHIPPED', order.id)
+      publish('inventory', 'INVENTORY_SHIPPED', order.id)
       return deepClone(order)
     },
-    async cancel(id, actor, expectedVersion) {
-      assertPermission(actor, 'sales-orders:cancel')
+    async cancel(id, _actor, expectedVersion) {
       const order = findById(state.salesOrders, id, 'Sales order')
       assertVersion(expectedVersion, order.version)
-      if (order.status === 'shipped' || order.status === 'partially_shipped') {
-        throw new WmsError(
-          'VALIDATION',
-          'Shipped or partially shipped orders cannot be cancelled'
-        )
-      }
-      if (order.status !== 'cancelled') {
-        order.status = 'cancelled'
-        touch(order)
-      }
-      publishOrders('sales-order.cancelled', order.id)
+      order.status = 'cancelled'
+      order.lines.forEach((line) => {
+        line.quantityReserved = 0
+      })
+      touch(order)
+      publish('orders', 'SALES_ORDER_CANCELLED', order.id)
       return deepClone(order)
     },
   },
@@ -721,14 +548,29 @@ export const mockWmsRepository: WmsRepository = {
       return deepClone(state.purchaseOrders)
     },
     async create(input: CreatePurchaseOrderInput, actor: Actor) {
-      assertPermission(actor, 'purchase-orders:create')
+      assertManager(actor, 'Creating purchase orders')
       const supplier = findById(state.suppliers, input.supplierId, 'Supplier')
-      const lines = validatePurchaseOrderLines(state, input.lines)
       const timestamp = nowIso()
+      const lines: PurchaseOrderLine[] = input.lines.map((line) => {
+        const product = findById(state.products, line.productId, 'Product')
+        const unitPrice = line.unitPrice ?? product.costPrice
+        return {
+          id: nextId('pol'),
+          productId: product.id,
+          productName: product.name,
+          quantityOrdered: line.quantity,
+          quantityReceived: 0,
+          unitPrice,
+          lineTotal: unitPrice * line.quantity,
+          quantity: line.quantity,
+          receivedQuantity: 0,
+        }
+      })
       const order: PurchaseOrder = {
         id: nextId('po'),
         supplierId: supplier.id,
         supplierName: supplier.name,
+        date: timestamp.slice(0, 10),
         status: 'draft',
         lines,
         version: 1,
@@ -736,58 +578,28 @@ export const mockWmsRepository: WmsRepository = {
         updatedAt: timestamp,
       }
       state.purchaseOrders.unshift(order)
-      publishOrders('purchase-order.created', order.id)
+      publish('orders', 'PURCHASE_ORDER_CREATED', order.id)
       return deepClone(order)
     },
-    async order(id, actor, expectedVersion) {
-      assertPermission(actor, 'purchase-orders:order')
+    async order(id, actor: Actor, expectedVersion) {
       const order = findById(state.purchaseOrders, id, 'Purchase order')
       assertVersion(expectedVersion, order.version)
-      if (order.status !== 'draft') {
-        throw new WmsError('VALIDATION', 'Only draft purchase orders can be ordered')
-      }
       order.status = 'ordered'
       touch(order)
-      publishOrders('purchase-order.ordered', order.id)
+      const recipient = findById(state.suppliers, order.supplierId, 'Supplier').email
+      addCommunication('PURCHASE_ORDER', order.id, recipient, 'Purchase order sent', actor.username)
+      publish('orders', 'PURCHASE_ORDER_ORDERED', order.id)
       return deepClone(order)
     },
-    async receive(id, lineReceipts: ReceiveLineInput[], actor, expectedVersion) {
-      assertPermission(actor, 'purchase-orders:receive')
+    async receive(id, lines: ReceiveLineInput[], actor: Actor, expectedVersion) {
       const order = findById(state.purchaseOrders, id, 'Purchase order')
       assertVersion(expectedVersion, order.version)
-      if (order.status === 'draft') {
-        throw new WmsError(
-          'VALIDATION',
-          'Purchase orders must be ordered before receiving'
-        )
-      }
-      if (order.status === 'cancelled') {
-        throw new WmsError('VALIDATION', 'Cancelled orders cannot modify inventory')
-      }
-      if (order.status === 'received') {
-        throw new WmsError('VALIDATION', 'Order is already received')
-      }
-      if (lineReceipts.length === 0) {
-        throw new WmsError('VALIDATION', 'Provide at least one line receipt')
-      }
-
-      lineReceipts.forEach((receipt) => {
-        assertPositiveInteger(receipt.quantity, 'Receipt quantity')
+      lines.forEach((receipt) => {
         const line = findById(order.lines, receipt.lineId, 'Purchase order line')
-        const remaining = line.quantity - line.receivedQuantity
-        if (receipt.quantity > remaining) {
-          throw new WmsError(
-            'VALIDATION',
-            `Cannot receive more than remaining quantity for ${line.productName}`
-          )
-        }
-      })
-
-      lineReceipts.forEach((receipt) => {
-        const line = findById(order.lines, receipt.lineId, 'Purchase order line')
-        line.receivedQuantity += receipt.quantity
+        line.quantityReceived += receipt.quantity
+        line.receivedQuantity = line.quantityReceived
         const product = findById(state.products, line.productId, 'Product')
-        addInventoryTransaction(state, {
+        addTxn({
           productId: line.productId,
           productName: line.productName,
           sku: product.sku,
@@ -795,62 +607,36 @@ export const mockWmsRepository: WmsRepository = {
           type: 'IN',
           referenceType: 'PO',
           referenceId: order.id,
+          referenceLineId: line.id,
+          unitPrice: line.unitPrice,
           performedBy: actor.username,
+          performedByUsername: actor.username,
         })
       })
-
-      const fullyReceived = order.lines.every((line) => line.receivedQuantity >= line.quantity)
-      order.status = fullyReceived ? 'received' : 'partially_received'
+      order.status = order.lines.every((line) => line.quantityReceived >= line.quantityOrdered)
+        ? 'received'
+        : 'partially_received'
       touch(order)
-      publishOrders('purchase-order.received', order.id)
-      publishInventory('inventory.received', order.id)
+      publish('orders', 'PURCHASE_ORDER_RECEIVED', order.id)
+      publish('inventory', 'INVENTORY_RECEIVED', order.id)
       return deepClone(order)
     },
-    async cancel(id, actor, expectedVersion) {
-      assertPermission(actor, 'purchase-orders:cancel')
+    async cancel(id, _actor, expectedVersion) {
       const order = findById(state.purchaseOrders, id, 'Purchase order')
       assertVersion(expectedVersion, order.version)
-      if (order.status === 'received' || order.status === 'partially_received') {
-        throw new WmsError(
-          'VALIDATION',
-          'Received or partially received orders cannot be cancelled'
-        )
-      }
-      if (order.status !== 'cancelled') {
-        order.status = 'cancelled'
-        touch(order)
-      }
-      publishOrders('purchase-order.cancelled', order.id)
+      order.status = 'cancelled'
+      touch(order)
+      publish('orders', 'PURCHASE_ORDER_CANCELLED', order.id)
       return deepClone(order)
     },
   },
   inventory: {
     async list() {
-      return deepClone(buildInventory(state))
+      return deepClone(buildInventory())
     },
     async adjust(input: AdjustmentInput, actor: Actor) {
-      assertPermission(actor, 'inventory:adjust')
-      if (!input.reason.trim()) {
-        throw new WmsError('VALIDATION', 'Adjustment reason is required')
-      }
-      if (input.quantityDelta === 0) {
-        throw new WmsError('VALIDATION', 'Adjustment quantity cannot be zero')
-      }
-
       const product = findById(state.products, input.productId, 'Product')
-      const current = inventoryForProduct(state, input.productId)
-      const nextQuantity = current.currentQuantity + input.quantityDelta
-      if (nextQuantity < 0) {
-        const canOverride = actor.role === 'manager' && input.allowNegativeOverride
-        if (!canOverride) {
-          throw new WmsError(
-            'INSUFFICIENT_INVENTORY',
-            'Inventory cannot go negative without override permission'
-          )
-        }
-      }
-
-      addInventoryTransaction(state, {
+      addTxn({
         productId: product.id,
         productName: product.name,
         sku: product.sku,
@@ -858,18 +644,57 @@ export const mockWmsRepository: WmsRepository = {
         type: 'ADJUST',
         referenceType: 'ADJUSTMENT',
         referenceId: nextId('adj'),
-        reason: input.reason.trim(),
+        unitPrice: input.unitPrice,
+        reason: input.reason,
         performedBy: actor.username,
+        performedByUsername: actor.username,
       })
-
-      publishInventory('inventory.adjusted', product.id)
-      const updated = inventoryForProduct(state, product.id)
-      return deepClone(updated)
+      publish('inventory', 'INVENTORY_ADJUSTED', product.id)
+      return deepClone(buildInventory().find((row) => row.productId === product.id)!)
     },
   },
   inventoryTransactions: {
     async list() {
       return deepClone(state.inventoryTransactions)
+    },
+  },
+  communications: {
+    async list() {
+      return deepClone(state.communications)
+    },
+  },
+  auditLog: {
+    async list() {
+      return deepClone(state.auditLog)
+    },
+  },
+  reports: {
+    async salesByProduct(_input?: ReportDateRangeInput) {
+      return []
+    },
+    async salesByCategory(_input?: ReportDateRangeInput) {
+      return []
+    },
+    async purchaseCostTracking(_input?: ReportDateRangeInput) {
+      return []
+    },
+    async supplierPerformance(_input?: ReportDateRangeInput) {
+      return []
+    },
+    async velocity(_input?: ReportDateRangeInput) {
+      return []
+    },
+    async lowStockTrends() {
+      return buildInventory().map((row) => ({
+        productId: row.productId,
+        productName: row.productName,
+        sku: row.sku,
+        onHand: row.onHand,
+        reserved: row.reserved,
+        available: row.available,
+        reorderThreshold: row.reorderThreshold,
+        lowStock: row.lowStock,
+      }))
     },
   },
 }

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { canAnyRole } from '@/lib/auth/permissions'
-import { getCurrentRoles, handleWmsError } from '@/lib/wms'
+import { getCurrentActor, getCurrentRoles, handleWmsError } from '@/lib/wms'
 import { useGridUrlState } from '@/hooks/use-grid-url-state'
 import { WmsGrid } from '@/components/ag-grid/wms-grid'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -28,14 +28,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAuthStore } from '@/stores/auth-store'
-import {
-  productService,
-  type ProductDto,
-  type ProductPayload,
-} from '@/services/products/product-service'
-import { stompRealtimeTransport } from '@/services/realtime/stomp-transport'
-import { realtimeTopics } from '@/services/realtime/transport'
 import { wmsQueryKeys, wmsRepository } from '@/services/wms'
+import type { Product } from '@/domain/wms/types'
 import { WmsPage } from '@/features/wms/components/wms-page'
 import { statusOptions } from '@/features/wms/constants'
 import { GridToolbar } from '@/features/wms/components/grid-toolbar'
@@ -47,6 +41,7 @@ type ProductFormState = {
   name: string
   sku: string
   categoryId: string
+  description: string
   unit: string
   defaultSalePrice: string
   costPrice: string
@@ -58,6 +53,7 @@ const initialFormState: ProductFormState = {
   name: '',
   sku: '',
   categoryId: '',
+  description: '',
   unit: 'pcs',
   defaultSalePrice: '',
   costPrice: '',
@@ -83,8 +79,8 @@ export function Products() {
   const [form, setForm] = useState<ProductFormState>(initialFormState)
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({})
   const [formOpen, setFormOpen] = useState(false)
-  const [editingProduct, setEditingProduct] = useState<ProductDto | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<ProductDto | null>(null)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<Product | null>(null)
 
   const resetForm = () => {
     setForm(initialFormState)
@@ -98,7 +94,7 @@ export function Products() {
 
   const productsQuery = useQuery({
     queryKey: wmsQueryKeys.products,
-    queryFn: () => productService.getAllProducts(),
+    queryFn: () => wmsRepository.products.list(),
   })
   const categoriesQuery = useQuery({
     queryKey: wmsQueryKeys.categories,
@@ -106,9 +102,8 @@ export function Products() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (payload: ProductPayload) => {
-      return productService.createProduct(payload)
-    },
+    mutationFn: (payload: Product) =>
+      wmsRepository.products.create(payload, getCurrentActor()),
     onSuccess: () => {
       toast.success('Product created')
       setFormOpen(false)
@@ -119,9 +114,13 @@ export function Products() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (payload: { id: ProductDto['id']; product: ProductPayload }) => {
-      return productService.updateProduct(payload.id, payload.product)
-    },
+    mutationFn: (payload: { id: string; product: Product }) =>
+      wmsRepository.products.update(
+        payload.id,
+        payload.product,
+        getCurrentActor(),
+        payload.product.version
+      ),
     onSuccess: () => {
       toast.success('Product updated')
       setFormOpen(false)
@@ -132,14 +131,14 @@ export function Products() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: ProductDto['id']) => productService.deleteProduct(id),
-    onSuccess: (_value, deletedId) => {
-      stompRealtimeTransport.publish(realtimeTopics.products, {
-        type: 'product.deleted',
-        id: deletedId,
-        at: new Date().toISOString(),
-      })
-      toast.success('Product deleted')
+    mutationFn: (payload: { id: string; version: number }) =>
+      wmsRepository.products.delete(
+        payload.id,
+        getCurrentActor(),
+        payload.version
+      ),
+    onSuccess: () => {
+      toast.success('Product deactivated')
       setPendingDelete(null)
       invalidateProducts()
     },
@@ -151,12 +150,13 @@ export function Products() {
     setFormOpen(true)
   }
 
-  const openEditForm = (row: ProductDto) => {
+  const openEditForm = (row: Product) => {
     setEditingProduct(row)
     setForm({
       name: row.name,
       sku: row.sku,
       categoryId: row.categoryId,
+      description: row.description ?? '',
       unit: row.unit,
       defaultSalePrice: String(row.defaultSalePrice),
       costPrice: String(row.costPrice),
@@ -220,48 +220,50 @@ export function Products() {
     if (Object.keys(nextErrors).length > 0) return
 
     if (editingProduct) {
-      const invalidId =
-        editingProduct.id === '' ||
-        (typeof editingProduct.id === 'number' && editingProduct.id <= 0) ||
-        (typeof editingProduct.id === 'string' &&
-          editingProduct.id.trim().length === 0)
-
-      if (invalidId) {
+      if (editingProduct.id.trim().length === 0) {
         toast.error('Cannot update product: invalid product id')
         return
       }
 
-      const payload: ProductPayload = {
+      const payload: Product = {
+        id: editingProduct.id,
         name: form.name.trim(),
         sku: form.sku.trim(),
         categoryId: form.categoryId.trim(),
         categoryName:
           categoryOptions.find((item) => item.id === form.categoryId.trim())?.name ??
           editingProduct.categoryName,
+        description: form.description.trim(),
         unit: form.unit.trim(),
         defaultSalePrice: parsedDefaultSalePrice,
         costPrice: parsedCostPrice,
         reorderThreshold: parsedReorderThreshold,
         status: form.status,
         version: editingProduct.version,
+        createdAt: editingProduct.createdAt,
+        updatedAt: editingProduct.updatedAt,
       }
 
       updateMutation.mutate({ id: editingProduct.id, product: payload })
       return
     }
 
-    const payload: ProductPayload = {
+    const payload: Product = {
+      id: '',
       name: form.name.trim(),
       sku: form.sku.trim(),
       categoryId: form.categoryId.trim(),
       categoryName:
         categoryOptions.find((item) => item.id === form.categoryId.trim())?.name ?? '',
+      description: form.description.trim(),
       unit: form.unit.trim(),
       defaultSalePrice: parsedDefaultSalePrice,
       costPrice: parsedCostPrice,
       reorderThreshold: parsedReorderThreshold,
       status: form.status,
-      version: 0,
+      version: 1,
+      createdAt: '',
+      updatedAt: '',
     }
 
     createMutation.mutate(payload)
@@ -277,6 +279,7 @@ export function Products() {
         row.name.toLowerCase().includes(lowered) ||
         row.sku.toLowerCase().includes(lowered) ||
         row.categoryName.toLowerCase().includes(lowered) ||
+        (row.description ?? '').toLowerCase().includes(lowered) ||
         row.unit.toLowerCase().includes(lowered) ||
         row.defaultSalePrice.toString().includes(lowered) ||
         row.costPrice.toString().includes(lowered) ||
@@ -287,11 +290,12 @@ export function Products() {
     return sortRows(filtered, sortBy, sortDir)
   }, [productsQuery.data, q, sortBy, sortDir])
 
-  const columns = useMemo<ColDef<ProductDto>[]>(
+  const columns = useMemo<ColDef<Product>[]>(
     () => [
       { field: 'name', headerName: 'Name' },
       { field: 'sku', headerName: 'SKU', minWidth: 140 },
       { field: 'categoryName', headerName: 'Category', minWidth: 180 },
+      { field: 'description', headerName: 'Description', minWidth: 220 },
       { field: 'unit', headerName: 'Unit', minWidth: 110 },
       {
         field: 'defaultSalePrice',
@@ -313,7 +317,7 @@ export function Products() {
         sortable: false,
         filter: false,
         minWidth: 220,
-        cellRenderer: (params: { data?: ProductDto }) => {
+        cellRenderer: (params: { data?: Product }) => {
           const row = params.data
           if (!row || !canManage) return null
           return (
@@ -323,12 +327,12 @@ export function Products() {
               </Button>
               <Button
                 size='sm'
-                variant='destructive'
+                variant='outline'
                 onClick={() => {
                   setPendingDelete(row)
                 }}
               >
-                Delete
+                Deactivate
               </Button>
             </div>
           )
@@ -381,7 +385,7 @@ export function Products() {
         placeholder='Filter products by name, SKU, category, unit, prices, threshold, or status...'
       />
 
-      <WmsGrid<ProductDto>
+      <WmsGrid<Product>
         rowData={rows}
         columnDefs={columns}
         loading={productsQuery.isLoading}
@@ -465,6 +469,17 @@ export function Products() {
               {formErrors.categoryId && (
                 <p className='text-xs text-destructive'>{formErrors.categoryId}</p>
               )}
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='product-description'>Description</Label>
+              <Input
+                id='product-description'
+                value={form.description}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, description: event.target.value }))
+                }}
+              />
             </div>
 
             <div className='space-y-2'>
@@ -593,30 +608,26 @@ export function Products() {
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null)
         }}
-        title='Delete Product'
+        title='Deactivate Product'
         desc={
           pendingDelete
-            ? `Are you sure you want to delete "${pendingDelete.name}"?`
-            : 'Are you sure you want to delete this product?'
+            ? `Are you sure you want to deactivate "${pendingDelete.name}"?`
+            : 'Are you sure you want to deactivate this product?'
         }
-        destructive
-        confirmText='Delete'
+        confirmText='Deactivate'
         isLoading={deleteMutation.isPending}
         handleConfirm={() => {
           if (!pendingDelete) return
-          const invalidId =
-            pendingDelete.id === '' ||
-            (typeof pendingDelete.id === 'number' && pendingDelete.id <= 0) ||
-            (typeof pendingDelete.id === 'string' &&
-              pendingDelete.id.trim().length === 0)
-
-          if (invalidId) {
-            toast.error('Cannot delete product: invalid product id')
+          if (pendingDelete.id.trim().length === 0) {
+            toast.error('Cannot deactivate product: invalid product id')
             setPendingDelete(null)
             return
           }
 
-          deleteMutation.mutate(pendingDelete.id)
+          deleteMutation.mutate({
+            id: pendingDelete.id,
+            version: pendingDelete.version,
+          })
         }}
       />
     </WmsPage>

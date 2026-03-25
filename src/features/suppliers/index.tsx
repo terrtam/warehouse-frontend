@@ -42,6 +42,7 @@ type SupplierFormState = {
   phone: string
   address: string
   status: RecordStatus
+  notes: string
 }
 
 type SupplierFormErrors = Partial<
@@ -54,6 +55,7 @@ const initialFormState: SupplierFormState = {
   phone: '',
   address: '',
   status: 'active',
+  notes: '',
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -135,6 +137,7 @@ export function Suppliers() {
       phone: row.phone,
       address: row.address,
       status: row.status,
+      notes: row.notes,
     })
     setFormErrors({})
     setFormOpen(true)
@@ -164,6 +167,7 @@ export function Suppliers() {
       phone: form.phone.trim(),
       address: form.address.trim(),
       status: form.status,
+      notes: form.notes.trim(),
     }
 
     if (!editingSupplier) {
@@ -186,7 +190,8 @@ export function Suppliers() {
         row.name.toLowerCase().includes(lowered) ||
         row.email.toLowerCase().includes(lowered) ||
         row.phone.toLowerCase().includes(lowered) ||
-        row.address.toLowerCase().includes(lowered)
+        row.address.toLowerCase().includes(lowered) ||
+        row.notes.toLowerCase().includes(lowered)
       )
     })
     return sortRows(filtered, sortBy, sortDir)
@@ -198,6 +203,7 @@ export function Suppliers() {
       { field: 'email', headerName: 'Email' },
       { field: 'phone', headerName: 'Phone', minWidth: 160 },
       { field: 'address', headerName: 'Address' },
+      { field: 'notes', headerName: 'Notes', minWidth: 220 },
       { field: 'status', headerName: 'Status', maxWidth: 120 },
       {
         field: 'updatedAt',
@@ -225,15 +231,16 @@ export function Suppliers() {
                 onClick={() => {
                   updateMutation.mutate({
                     id: row.id,
-                    supplier: {
-                      name: row.name,
-                      email: row.email,
-                      phone: row.phone,
-                      address: row.address,
-                      status: row.status === 'active' ? 'inactive' : 'active',
-                    },
-                    version: row.version,
-                  })
+                      supplier: {
+                        name: row.name,
+                        email: row.email,
+                        phone: row.phone,
+                        address: row.address,
+                        status: row.status === 'active' ? 'inactive' : 'active',
+                        notes: row.notes,
+                      },
+                      version: row.version,
+                    })
                 }}
               >
                 {row.status === 'active' ? 'Deactivate' : 'Activate'}
@@ -288,7 +295,7 @@ export function Suppliers() {
       <GridToolbar
         query={q}
         onQueryChange={setQuery}
-        placeholder='Filter suppliers by name, email, phone, or address...'
+        placeholder='Filter suppliers by name, email, phone, address, or notes...'
       />
 
       <WmsGrid<Supplier>
@@ -407,6 +414,17 @@ export function Suppliers() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='supplier-notes'>Notes</Label>
+              <Input
+                id='supplier-notes'
+                value={form.notes}
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, notes: event.target.value }))
+                }}
+              />
             </div>
           </div>
 

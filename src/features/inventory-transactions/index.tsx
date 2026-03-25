@@ -34,7 +34,9 @@ export function InventoryTransactions() {
         row.productName.toLowerCase().includes(lowered) ||
         row.sku.toLowerCase().includes(lowered) ||
         row.referenceId.toLowerCase().includes(lowered) ||
-        row.performedBy.toLowerCase().includes(lowered)
+        row.referenceLineId?.toLowerCase().includes(lowered) ||
+        row.performedByUsername.toLowerCase().includes(lowered) ||
+        (row.reason ?? '').toLowerCase().includes(lowered)
       )
     })
     return sortRows(filtered, sortBy, sortDir)
@@ -48,7 +50,18 @@ export function InventoryTransactions() {
       { field: 'type', headerName: 'Type', maxWidth: 100 },
       { field: 'referenceType', headerName: 'Ref Type', maxWidth: 120 },
       { field: 'referenceId', headerName: 'Ref ID', minWidth: 150 },
-      { field: 'performedBy', headerName: 'User', maxWidth: 130 },
+      { field: 'referenceLineId', headerName: 'Ref Line', minWidth: 150 },
+      {
+        field: 'unitPrice',
+        headerName: 'Unit Price',
+        maxWidth: 130,
+        valueFormatter: ({ value }) =>
+          typeof value === 'number' && Number.isFinite(value)
+            ? `$${value.toFixed(2)}`
+            : '',
+      },
+      { field: 'reason', headerName: 'Reason', minWidth: 180 },
+      { field: 'performedByUsername', headerName: 'User', maxWidth: 150 },
       {
         field: 'createdAt',
         headerName: 'Timestamp',
@@ -68,7 +81,7 @@ export function InventoryTransactions() {
       <GridToolbar
         query={q}
         onQueryChange={setQuery}
-        placeholder='Filter transactions by product, SKU, reference, or user...'
+        placeholder='Filter transactions by product, SKU, reference, reason, or user...'
       />
 
       <WmsGrid<InventoryTransaction>
