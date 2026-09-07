@@ -70,3 +70,22 @@ Notes:
 
 - `VITE_USE_WMS_MOCK=true` enables the in-memory WMS repository in dev mode.
 - `VITE_CLERK_PUBLISHABLE_KEY` is only used by the Clerk template routes.
+
+## AWS Deployment Notes
+
+For production, build the frontend once per deployment and publish the static output to S3 behind CloudFront.
+
+Recommended production values:
+
+- `VITE_API_URL` -> public backend URL exposed through the ECS load balancer
+- `VITE_API_BASE_URL` -> same value as `VITE_API_URL`
+- `VITE_WS_URL` -> public WebSocket endpoint, typically `wss://<backend-domain>/ws`
+- `VITE_USE_WMS_MOCK` -> `false`
+- `VITE_CLERK_PUBLISHABLE_KEY` -> only set if Clerk-backed routes are used in that deployment
+
+Operational notes:
+
+- Use a CloudFront distribution in front of the S3 bucket.
+- Set the S3 bucket to private and use Origin Access Control.
+- Invalidate the CloudFront cache after each frontend release.
+- Keep the frontend and backend URLs in sync so API calls and WebSocket connections use the same environment-specific endpoints.
