@@ -1,0 +1,66 @@
+name: AWS Frontend Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  S3_BUCKET: ${{ vars.S3_BUCKET }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+  FRONTEND_API_URL: ${{ vars.FRONTEND_API_URL }}
+  FRONTEND_WS_URL: ${{ vars.FRONTEND_WS_URL }}
+  FRONTEND_USE_WMS_MOCK: "false"
+  FRONTEND_CLERK_PUBLISHABLE_KEY: ${{ vars.FRONTEND_CLERK_PUBLISHABLE_KEY }}
+
+jobs:
+  frontend:
+    name: Build and publish frontend
+    runs-on: ubuntu-latest
+    if: ${{ env.AWS_REGION != '' && env.S3_BUCKET != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        env:
+          VITE_API_URL: ${{ env.FRONTEND_API_URL }}
+          VITE_API_BASE_URL: ${{ env.FRONTEND_API_URL }}
+          VITE_WS_URL: ${{ env.FRONTEND_WS_URL }}
+          VITE_USE_WMS_MOCK: ${{ env.FRONTEND_USE_WMS_MOCK }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ env.FRONTEND_CLERK_PUBLISHABLE_KEY }}
+        run: pnpm build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload frontend to S3
+        run: aws s3 sync dist "s3://${S3_BUCKET}" --delete
+
+      - name: Invalidate CloudFront cache
+        if: ${{ env.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: aws cloudfront create-invalidation --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" --paths "/*"
