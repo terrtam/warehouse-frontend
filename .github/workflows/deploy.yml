@@ -23,7 +23,7 @@ jobs:
   frontend:
     name: Build and publish frontend
     runs-on: ubuntu-latest
-    if: ${{ env.AWS_REGION != '' && env.S3_BUCKET != '' }}
+    if: ${{ vars.AWS_REGION != '' && vars.S3_BUCKET != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
